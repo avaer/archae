@@ -1,7 +1,0 @@
-{
-  "name": "physics",
-  "description": "Server-side physics powered by the Bullet physics engine.",
-  "version": "0.0.1",
-  "client": "client.js",
-  "dependencies": {}
-}

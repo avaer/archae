@@ -1,7 +1,0 @@
-{
-  "name": "camera",
-  "version": "0.0.1",
-  "description": "Take snapshots with a virtual camera object.",
-  "client": "client.js",
-  "dependencies": {}
-}
