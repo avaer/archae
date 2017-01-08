@@ -5,6 +5,10 @@
   "scripts": {
     "start": "node ./examples/index.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/modulesio/archae.git"
+  },
   "dependencies": {
     "cryptoutils": "0.0.2",
     "express": "^4.14.0",
