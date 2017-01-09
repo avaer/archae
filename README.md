@@ -168,7 +168,7 @@ This example is in [`example/plugins/demo-plugin`](https://github.com/modulesio/
 
 ## How it works
 
-Arche pulls, builds, loads, and caches `npm` modules on the backend, and serves them to the frontend over HTTP/2, as long as they meet the above `mount`/`unmount` spec.
+Archae pulls, builds, loads, and caches `npm` modules on the backend, and serves them to the frontend over HTTP/2, as long as they meet the above `mount`/`unmount` spec.
 
 All you have to do to use archae is instantiate it in your app:
 
