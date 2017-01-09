@@ -41,16 +41,30 @@ if (!npmCommands) {
 const nameSymbol = Symbol();
 
 class ArchaeServer {
-  constructor({server, app, wss} = {}) {
-    server = server || _getServer();
+  constructor({dirname, server, app, wss} = {}) {
+    dirname = dirname || process.cwd();
+    this.dirname = dirname;
+    if (!server) {
+      server = this.getServer();
+
+      process.nextTick(() => {
+        server.listen(defaultConfig.port);
+      });
+    }
+    this.server = server;
     app = app || express();
+    this.app = app;
     wss = wss || new ws.Server({
       noServer: true,
     });
-
-    this.server = server;
-    this.app = app;
     this.wss = wss;
+
+    const pather = new ArchaePather(dirname);
+    this.pather = pather;
+    const hasher = new ArchaeHasher(dirname, pather);
+    this.hasher = hasher;
+    const installer = new ArchaeInstaller(dirname, pather, hasher);
+    this.installer = installer;
 
     this.connections = [];
 
@@ -67,8 +81,76 @@ class ArchaeServer {
     this.mountApp();
   }
 
+  loadCerts() {
+    const {dirname} = this;
+
+    const _getOldCerts = () => {
+      const _getFile = fileName => {
+        try {
+          return fs.readFileSync(path.join(dirname, defaultConfig.dataDirectory, 'crypto', fileName), 'utf8');
+        } catch(err) {
+          if (err.code !== 'ENOENT') {
+            console.warn(err);
+          }
+          return null;
+        }
+      };
+
+      const privateKey = _getFile('private.pem');
+      const cert = _getFile('cert.pem');
+      if (privateKey && cert) {
+        return {
+          privateKey,
+          cert,
+        };
+      } else {
+        return null;
+      }
+    };
+
+    const _getNewCerts = () => {
+      const keys = cryptoutils.generateKeys();
+      const publicKey = keys.publicKey;
+      const privateKey = keys.privateKey;
+      const cert = cryptoutils.generateCert(keys, {
+        commonName: defaultConfig.hostname,
+      });
+
+      const cryptoDirectory = path.join(dirname, defaultConfig.dataDirectory, 'crypto');
+      const _makeCryptoDirectory = () => {
+        mkdirp.sync(cryptoDirectory);
+      };
+      const _setFile = (fileName, fileData) => {
+        fs.writeFileSync(path.join(cryptoDirectory, fileName), fileData);
+      };
+
+      _makeCryptoDirectory();
+      _setFile('public.pem', publicKey);
+      _setFile('private.pem', privateKey);
+      _setFile('cert.pem', cert);
+
+      return {
+        privateKey,
+        cert,
+      };
+    };
+
+    return _getOldCerts() || _getNewCerts();
+  }
+
+  getServer() {
+    const certs = this.loadCerts();
+
+    return spdy.createServer({
+      cert: certs.cert,
+      key: certs.privateKey,
+    });
+  }
+
   requestEngine(engine, opts = {}) {
     return new Promise((accept, reject) => {
+      const {pather, installer} = this;
+
       const cb = (err, result) => {
         if (!err) {
           accept(result);
@@ -77,7 +159,7 @@ class ArchaeServer {
         }
       };
 
-      _getModuleRealName(engine, 'engines', (err, engineName) => {
+      pather.getModuleRealName(engine, 'engines', (err, engineName) => {
         if (!err) {
           const {enginesMutex} = this;
 
@@ -90,10 +172,10 @@ class ArchaeServer {
               })(cb);
           
               const _remove = cb => {
-                _removeModule(engineName, 'engines', cb);
+                installer.removeModule(engineName, 'engines', cb);
               };
               const _add = cb => {
-                _addModule(engine, 'engines', err => {
+                installer.addModule(engine, 'engines', err => {
                   if (!err) {
                     const existingEngine = this.engines[engineName];
                     if (existingEngine !== undefined) {
@@ -148,6 +230,8 @@ class ArchaeServer {
 
   releaseEngine(engine) {
     return new Promise((accept, reject) => {
+      const {pather, installer} = this;
+
       const cb = (err, result) => {
         if (!err) {
           accept(result);
@@ -156,7 +240,7 @@ class ArchaeServer {
         }
       };
 
-      _getModuleRealName(engine, 'engines', (err, engineName) => {
+      pather.getModuleRealName(engine, 'engines', (err, engineName) => {
         this.enginesMutex.lock(engineName)
           .then(unlock => {
             const unlockCb = (cb => (err, result) => {
@@ -169,7 +253,7 @@ class ArchaeServer {
               if (!err) {
                 this.unloadModule(engineName, this.engines);
 
-                _removeModule(engineName, 'engines', () => {
+                installer.removeModule(engineName, 'engines', () => {
                   if (!err) {
                     unlockCb(null, {
                       engineName,
@@ -197,6 +281,8 @@ class ArchaeServer {
 
   requestPlugin(plugin, opts = {}) {
     return new Promise((accept, reject) => {
+      const {pather, installer} = this;
+
       const cb = (err, result) => {
         if (!err) {
           accept(result);
@@ -205,7 +291,7 @@ class ArchaeServer {
         }
       };
 
-      _getModuleRealName(plugin, 'plugins', (err, pluginName) => {
+      pather.getModuleRealName(plugin, 'plugins', (err, pluginName) => {
         if (!err) {
           const {pluginsMutex} = this;
 
@@ -218,10 +304,10 @@ class ArchaeServer {
               })(cb);
           
               const _remove = cb => {
-                _removeModule(pluginName, 'plugins', cb);
+                installer.removeModule(pluginName, 'plugins', cb);
               };
               const _add = cb => {
-                _addModule(plugin, 'plugins', err => {
+                installer.addModule(plugin, 'plugins', err => {
                   if (!err) {
                     const existingPlugin = this.plugins[pluginName];
                     if (existingPlugin !== undefined) {
@@ -276,6 +362,8 @@ class ArchaeServer {
 
   releasePlugin(plugin) {
     return new Promise((accept, reject) => {
+      const {pather, installer} = this;
+
       const cb = (err, result) => {
         if (!err) {
           accept(result);
@@ -284,7 +372,7 @@ class ArchaeServer {
         }
       };
 
-      _getModuleRealName(plugin, 'plugins', (err, pluginName) => {
+      pather.getModuleRealName(plugin, 'plugins', (err, pluginName) => {
         this.pluginsMutex.lock(pluginName)
           .then(unlock => {
             const unlockCb = (cb => (err, result) => {
@@ -297,7 +385,7 @@ class ArchaeServer {
               if (!err) {
                 this.unloadModule(pluginName, this.plugins);
 
-                _removeModule(pluginName, 'plugins', err => {
+                installer.removeModule(pluginName, 'plugins', err => {
                   if (!err) {
                     unlockCb(null, {
                       pluginName,
@@ -338,14 +426,15 @@ class ArchaeServer {
     };
     const _sort = modules => modules.map(m => m.replace(/\.js$/, '')).sort();
 
-    fs.readdir(path.join(__dirname, 'installed', 'engines', 'build'), (err, files) => {
+    const {dirname} = this;
+    fs.readdir(path.join(dirname, 'installed', 'engines', 'build'), (err, files) => {
       if (!err) {
         engines = engines.concat(files);
       }
 
       pend();
     });
-    fs.readdir(path.join(__dirname, 'installed', 'plugins', 'build'), (err, files) => {
+    fs.readdir(path.join(dirname, 'installed', 'plugins', 'build'), (err, files) => {
       if (!err) {
         plugins = plugins.concat(files);
       }
@@ -369,7 +458,8 @@ class ArchaeServer {
     };
     const _sort = modules => modules.map(m => m.replace(/\.js$/, '')).sort();
 
-    fs.readdir(path.join(__dirname, 'installed', 'engines', 'node_modules'), (err, files) => {
+    const {dirname} = this;
+    fs.readdir(path.join(dirname, 'installed', 'engines', 'node_modules'), (err, files) => {
       if (!err) {
         if (files.length > 0) {
           let pending = files.length;
@@ -382,7 +472,7 @@ class ArchaeServer {
           files.forEach(file => {
             const engine = file;
 
-            fs.readFile(path.join(__dirname, 'installed', 'engines', 'node_modules', engine, 'package.json'), 'utf8', (err, s) => {
+            fs.readFile(path.join(dirname, 'installed', 'engines', 'node_modules', engine, 'package.json'), 'utf8', (err, s) => {
               if (!err) {
                 const j = JSON.parse(s);
                 const serverFileName = j.server;
@@ -428,7 +518,9 @@ class ArchaeServer {
   }
 
   getModulePackageJsonFileName(module, type, packageJsonFileNameKey, cb) {
-    fs.readFile(path.join(__dirname, 'installed', type, 'node_modules', module, 'package.json'), 'utf8', (err, s) => {
+    const {dirname} = this;
+
+    fs.readFile(path.join(dirname, 'installed', type, 'node_modules', module, 'package.json'), 'utf8', (err, s) => {
       if (!err) {
         const j = JSON.parse(s);
         const fileName = j[packageJsonFileNameKey];
@@ -451,7 +543,8 @@ class ArchaeServer {
     this.getModulePackageJsonFileName(module, type, packageJsonFileNameKey, (err, fileName) => {
       if (!err) {
         if (fileName) {
-          const moduleRequire = require(path.join(__dirname, 'installed', type, 'node_modules', module, fileName));
+          const {dirname} = this;
+          const moduleRequire = require(path.join(dirname, 'installed', type, 'node_modules', module, fileName));
 
           exports[module] = moduleRequire;
         } else {
@@ -527,10 +620,10 @@ class ArchaeServer {
   getCore() {
     return {
       express: express,
-      dirname: __dirname,
       server: this.server,
       app: this.app,
       wss: this.wss,
+      dirname: this.dirname,
     };
   }
 
@@ -539,7 +632,7 @@ class ArchaeServer {
   }
 
   mountApp() {
-    const {server, app, wss} = this;
+    const {dirname, server, app, wss} = this;
 
     // public
     app.use('/', express.static(path.join(__dirname, 'public')));
@@ -577,7 +670,7 @@ class ArchaeServer {
           _respondOk(entry);
         } else {
           rollup.rollup({
-            entry: path.join(__dirname, 'installed', type, 'node_modules',  module, (!worker ? 'client' : 'worker') + '.js'),
+            entry: path.join(dirname, 'installed', type, 'node_modules',  module, (!worker ? 'client' : 'worker') + '.js'),
             plugins: [
               rollupPluginNodeResolve({
                 main: true,
@@ -755,55 +848,80 @@ class ArchaeServer {
   }
 }
 
-const moduleHashesMutex = new MultiMutex();
-const MODULE_HASHES_MUTEX_KEY = 'key';
-let modulesHashesJson = null;
-const validatedModuleHashes = {
-  engines: {},
-  plugins: {},
-};
-const _loadModulesHashesJson = cb => {
-  if (modulesHashesJson !== null) {
-    process.nextTick(() => {
-      cb(null, modulesHashesJson);
-    });
-  } else {
-    moduleHashesMutex.lock(MODULE_HASHES_MUTEX_KEY)
-      .then(unlock => {
-        const unlockCb = (err, result) => {
-          cb(err, result);
-
-          unlock();
-        };
-
-        const modulesPath = path.join(__dirname, 'data', 'modules');
-        const moduleHashesJsonPath = path.join(modulesPath, 'hashes.json');
-
-        fs.readFile(moduleHashesJsonPath, 'utf8', (err, s) => {
-          if (!err) {
-            modulesHashesJson = JSON.parse(s);
-
-            unlockCb(null, modulesHashesJson);
-          } else if (err.code === 'ENOENT') {
-            modulesHashesJson = {
-              engines: {},
-              plugins: {},
-            };
-
-            unlockCb(null, modulesHashesJson);
-          } else {
-            unlockCb(err);
-          }
-        });
-      })
-      .catch(err => {
-        cb(err);
-      });
+class ArchaePather {
+  constructor(dirname) {
+    this.dirname = dirname;
   }
-};
-const _saveModulesHashesJson = cb => {
-  _loadModulesHashesJson((err, modulesHashesJson) => {
-    if (!err) {
+
+  getModuleRealName(module, type, cb) {
+    if (path.isAbsolute(module)) {
+      const packageJsonPath = this.getLocalModulePackageJsonPath(module);
+
+      fs.readFile(packageJsonPath, 'utf8', (err, s) => {
+        if (!err) {
+          const j = JSON.parse(s);
+          const moduleName = j.name;
+          const displayName = module.match(/([^\/]*)$/)[1];
+
+          if (moduleName === displayName) {
+            cb(null, moduleName);
+          } else {
+            const err = new Error('module name in package.json does not match path: ' + JSON.stringify(module));
+            cb(err);
+          }
+        } else {
+          cb(err);
+        }
+      });
+    } else {
+      process.nextTick(() => {
+        const moduleName = module;
+        cb(null, moduleName);
+      });
+    }
+  }
+
+  getInstalledModulePath(moduleName, type) {
+    const {dirname} = this;
+    return path.join(dirname, 'installed', type, 'node_modules', moduleName);
+  }
+
+  getLocalModulePath(module) {
+    const {dirname} = this;
+    return path.join(dirname, module);
+  }
+
+  getInstalledModulePackageJsonPath(moduleName, type) {
+    return path.join(this.getInstalledModulePath(moduleName, type), 'package.json');
+  }
+
+  getLocalModulePackageJsonPath(module) {
+    return path.join(this.getLocalModulePath(module), 'package.json');
+  }
+}
+
+const MODULE_HASHES_MUTEX_KEY = 'key';
+class ArchaeHasher {
+  constructor(dirname, pather) {
+    this.dirname = dirname;
+    this.pather = pather;
+
+    this.moduleHashesMutex = new MultiMutex();
+    this.modulesHashesJson = null;
+    this.validatedModuleHashes = {
+      engines: {},
+      plugins: {},
+    };
+  }
+
+  loadModulesHashesJson(cb) {
+    const {dirname, moduleHashesMutex, modulesHashesJson} = this;
+
+    if (modulesHashesJson !== null) {
+      process.nextTick(() => {
+        cb(null, modulesHashesJson);
+      });
+    } else {
       moduleHashesMutex.lock(MODULE_HASHES_MUTEX_KEY)
         .then(unlock => {
           const unlockCb = (err, result) => {
@@ -812,19 +930,23 @@ const _saveModulesHashesJson = cb => {
             unlock();
           };
 
-          const modulesPath = path.join(__dirname, 'data', 'modules');
+          const modulesPath = path.join(dirname, 'data', 'modules');
+          const moduleHashesJsonPath = path.join(modulesPath, 'hashes.json');
 
-          mkdirp(modulesPath, err => {
+          fs.readFile(moduleHashesJsonPath, 'utf8', (err, s) => {
             if (!err) {
-              const moduleHashesJsonPath = path.join(modulesPath, 'hashes.json');
+              const newModulesHashesJson = JSON.parse(s);
+              this.modulesHashesJson = newModulesHashesJson;
 
-              fs.writeFile(moduleHashesJsonPath, JSON.stringify(modulesHashesJson, null, 2), err => {
-                if (!err) {
-                  unlockCb();
-                } else {
-                  unlockCb(err);
-                }
-              });
+              unlockCb(null, newModulesHashesJson);
+            } else if (err.code === 'ENOENT') {
+              const newModulesHashesJson = {
+                engines: {},
+                plugins: {},
+              };
+              this.modulesHashesJson = newModulesHashesJson;
+
+              unlockCb(null, newModulesHashesJson);
             } else {
               unlockCb(err);
             }
@@ -833,141 +955,323 @@ const _saveModulesHashesJson = cb => {
         .catch(err => {
           cb(err);
         });
-    } else {
-      cb(err);
     }
-  });
-};
-const _setModuleHash = (moduleName, type, hash, cb) => {
-  _loadModulesHashesJson((err, modulesHashesJson) => {
-    if (!err) {
-      modulesHashesJson[type][moduleName] = hash;
-
-      _saveModulesHashesJson(cb);
-    } else {
-      cb(err);
-    }
-  });
-};
-const _unsetModuleHash = (moduleName, type, cb) => {
-  _loadModulesHashesJson((err, modulesHashesJson) => {
-    if (!err) {
-      delete modulesHashesJson[type][moduleName];
-
-      _saveModulesHashesJson(cb);
-    } else {
-      cb(err);
-    }
-  });
-};
-const _setValidatedModuleHash = (moduleName, type, hash) => {
-  validatedModuleHashes[type][moduleName] = hash;
-};
-const _unsetValidatedModuleHash = (moduleName, type) => {
-  delete validatedModuleHashes[type][moduleName];
-};
-const _requestInstalledModuleHash = (moduleName, type) => new Promise((accept, reject) => {
-  _loadModulesHashesJson((err, modulesHashesJson) => {
-    if (!err) {
-      accept(modulesHashesJson[type][moduleName] || null);
-    } else {
-      reject(err);
-    }
-  });
-});
-const _requestInstallCandidateModuleHash = module => new Promise((accept, reject) => {
-  if (path.isAbsolute(module)) {
-    const modulePath = _getLocalModulePath(module);
-
-    const hasher = fsHasher.watch(modulePath, newHash => {
-      accept(newHash);
-
-      hasher.destroy();
-    });
-  } else {
-    https.get({
-      hostname: 'api.npms.io',
-      path: '/v2/package/' + module,
-    }, res => {
-      const bs = [];
-      res.on('data', d => {
-        bs.push(d);
-      });
-      res.on('end', () => {
-        const b = Buffer.concat(bs);
-        const s = b.toString('utf8');
-        const j = JSON.parse(s);
-        const {collected: {metadata: {version}}} = j;
-
-        accept(version);
-      });
-    }).on('error', err => {
-      reject(err);
-    });
   }
-});
-const _getModuleInstallStatus = (module, type, cb) => {
-  _getModuleRealName(module, type, (err, moduleName) => {
-    if (!err) {
-      const validatedHash = validatedModuleHashes[type][moduleName] || null;
 
-      if (validatedHash !== null) {
-        const exists = true;
-        const outdated = false;
-        const installedHash = validatedHash;
-        const candidateHash = validatedHash;
+  saveModulesHashesJson(cb) {
+    const {dirname, moduleHashesMutex, modulesHashesJson} = this;
 
-        cb(null, {exists, outdated, moduleName, installedHash, candidateHash});
-      } else {
-        Promise.all([
-          _requestInstalledModuleHash(moduleName, type),
-          _requestInstallCandidateModuleHash(module),
-        ])
-          .then(([
-            installedHash,
-            candidateHash,
-          ]) => {
-            const exists = installedHash !== null;
-            const outdated = !exists || installedHash !== candidateHash;
+    this.loadModulesHashesJson((err, modulesHashesJson) => {
+      if (!err) {
+        moduleHashesMutex.lock(MODULE_HASHES_MUTEX_KEY)
+          .then(unlock => {
+            const unlockCb = (err, result) => {
+              cb(err, result);
 
-            cb(null, {exists, outdated, moduleName, installedHash, candidateHash});
+              unlock();
+            };
+
+            const modulesPath = path.join(dirname, 'data', 'modules');
+
+            mkdirp(modulesPath, err => {
+              if (!err) {
+                const moduleHashesJsonPath = path.join(modulesPath, 'hashes.json');
+
+                fs.writeFile(moduleHashesJsonPath, JSON.stringify(modulesHashesJson, null, 2), err => {
+                  if (!err) {
+                    unlockCb();
+                  } else {
+                    unlockCb(err);
+                  }
+                });
+              } else {
+                unlockCb(err);
+              }
+            });
           })
           .catch(err => {
             cb(err);
           });
+      } else {
+        cb(err);
       }
-    } else {
-      cb(err);
-    }
-  });
-};
+    });
+  }
 
-const _addModule = (module, type, cb) => {
-  const _downloadModule = (module, type, cb) => {
-    if (path.isAbsolute(module)) {
-      const modulePackageJsonPath = _getLocalModulePackageJsonPath(module);
+  setModuleHash(moduleName, type, hash, cb) {
+    this.loadModulesHashesJson((err, modulesHashesJson) => {
+      if (!err) {
+        modulesHashesJson[type][moduleName] = hash;
 
-      fs.readFile(modulePackageJsonPath, 'utf8', (err, s) => {
+        this.saveModulesHashesJson(cb);
+      } else {
+        cb(err);
+      }
+    });
+  }
+
+  unsetModuleHash(moduleName, type, cb) {
+    this.loadModulesHashesJson((err, modulesHashesJson) => {
+      if (!err) {
+        delete modulesHashesJson[type][moduleName];
+
+        this.saveModulesHashesJson(cb);
+      } else {
+        cb(err);
+      }
+    });
+  }
+
+  setValidatedModuleHash(moduleName, type, hash) {
+    const {validatedModuleHashes} = this;
+    validatedModuleHashes[type][moduleName] = hash;
+  }
+
+  unsetValidatedModuleHash(moduleName, type) {
+    const {validatedModuleHashes} = this;
+    delete validatedModuleHashes[type][moduleName];
+  }
+
+  requestInstalledModuleHash(moduleName, type) {
+    return new Promise((accept, reject) => {
+      this.loadModulesHashesJson((err, modulesHashesJson) => {
         if (!err) {
-          const j = JSON.parse(s);
-          const moduleName = j.name;
-          const modulePath = _getInstalledModulePath(moduleName, type);
+          accept(modulesHashesJson[type][moduleName] || null);
+        } else {
+          reject(err);
+        }
+      });
+    });
+  }
 
-          fs.exists(modulePath, exists => {
-            if (exists) {
-              _npmInstall(moduleName, type, err => {
+  requestInstallCandidateModuleHash(module) {
+    return new Promise((accept, reject) => {
+      const {pather} = this;
+
+      if (path.isAbsolute(module)) {
+        const modulePath = pather.getLocalModulePath(module);
+
+        const hasher = fsHasher.watch(modulePath, newHash => {
+          accept(newHash);
+
+          hasher.destroy();
+        });
+      } else {
+        https.get({
+          hostname: 'api.npms.io',
+          path: '/v2/package/' + module,
+        }, res => {
+          const bs = [];
+          res.on('data', d => {
+            bs.push(d);
+          });
+          res.on('end', () => {
+            const b = Buffer.concat(bs);
+            const s = b.toString('utf8');
+            const j = JSON.parse(s);
+            const {collected: {metadata: {version}}} = j;
+
+            accept(version);
+          });
+        }).on('error', err => {
+          reject(err);
+        });
+      }
+    });
+  }
+
+  getModuleInstallStatus(module, type, cb) {
+    const {pather, validatedModuleHashes} = this;
+
+    pather.getModuleRealName(module, type, (err, moduleName) => {
+      if (!err) {
+        const validatedHash = validatedModuleHashes[type][moduleName] || null;
+
+        if (validatedHash !== null) {
+          const exists = true;
+          const outdated = false;
+          const installedHash = validatedHash;
+          const candidateHash = validatedHash;
+
+          cb(null, {exists, outdated, moduleName, installedHash, candidateHash});
+        } else {
+          Promise.all([
+            this.requestInstalledModuleHash(moduleName, type),
+            this.requestInstallCandidateModuleHash(module),
+          ])
+            .then(([
+              installedHash,
+              candidateHash,
+            ]) => {
+              const exists = installedHash !== null;
+              const outdated = !exists || installedHash !== candidateHash;
+
+              cb(null, {exists, outdated, moduleName, installedHash, candidateHash});
+            })
+            .catch(err => {
+              cb(err);
+            });
+        }
+      } else {
+        cb(err);
+      }
+    });
+  }
+}
+
+class ArchaeInstaller {
+  constructor(dirname, pather, hasher) {
+    this.dirname = dirname;
+    this.pather = pather;
+    this.hasher = hasher;
+
+    this.running = false;
+    this.queue = [];
+  }
+
+  addModule(module, type, cb) {
+    const {dirname, pather} = this;
+
+    const _installModule = (module, type, cb) => {
+      if (path.isAbsolute(module)) {
+        const modulePackageJsonPath = pather.getLocalModulePackageJsonPath(module);
+
+        fs.readFile(modulePackageJsonPath, 'utf8', (err, s) => {
+          if (!err) {
+            const j = JSON.parse(s);
+            const moduleName = j.name;
+            const modulePath = pather.getInstalledModulePath(moduleName, type);
+
+            fs.exists(modulePath, exists => {
+              if (exists) {
+                _npmInstall(moduleName, type, err => {
+                  if (!err) {
+                    cb();
+                  } else {
+                    cb(err);
+                  }
+                });
+              } else {
+                const localModulePath = path.join(dirname, module);
+                fs.copy(localModulePath, modulePath, err => {
+                  if (!err) {
+                    _npmInstall(moduleName, type, err => {
+                      if (!err) {
+                        cb();
+                      } else {
+                        cb(err);
+                      }
+                    });
+                  } else {
+                    cb(err);
+                  }
+                });
+              }
+            });
+          } else {
+            cb(err);
+
+            cleanup();
+          }
+        });  
+      } else {
+        const moduleName = module;
+
+        _npmAdd(moduleName, type, err => {
+          if (!err) {
+            const modulePackageJsonPath = pather.getInstalledModulePackageJsonPath(moduleName, type);
+
+            fs.readFile(modulePackageJsonPath, 'utf8', (err, s) => {
+              if (!err) {
+                const j = JSON.parse(s);
+                cb(null, j);
+              } else {
+                cb(err);
+              }
+            });
+          } else {
+            cb(err);
+          }
+        });
+      }
+    };
+    const _npmAdd = (module, type, cb) => {
+      this.queueNpm(cleanup => {
+        const npmAdd = child_process.spawn(
+          npmCommands.add[0],
+          npmCommands.add.slice(1).concat([ module ]),
+          {
+            cwd: path.join(dirname, 'installed', type),
+          }
+        );
+        npmAdd.stdout.pipe(process.stdout);
+        npmAdd.stderr.pipe(process.stderr);
+        npmAdd.on('exit', code => {
+          if (code === 0) {
+            cb();
+          } else {
+            const err = new Error('npm add error: ' + code);
+            cb(err);
+          }
+
+          cleanup();
+        });
+      });
+    };
+    const _npmInstall = (moduleName, type, cb) => {
+      this.queueNpm(cleanup => {
+        const modulePath = pather.getInstalledModulePath(moduleName, type);
+
+        const npmInstall = child_process.spawn(
+          npmCommands.install[0],
+          npmCommands.install.slice(1),
+          {
+            cwd: modulePath,
+          }
+        );
+        npmInstall.stdout.pipe(process.stdout);
+        npmInstall.stderr.pipe(process.stderr);
+        npmInstall.on('exit', code => {
+          if (code === 0) {
+            cb();
+          } else {
+            const err = new Error('npm install error: ' + code);
+            cb(err);
+          }
+
+          cleanup();
+        });
+      });
+    };
+
+    mkdirp(path.join(dirname, 'installed', type), err => {
+      if (!err) {
+        const {hasher} = this;
+
+        hasher.getModuleInstallStatus(module, type, (err, result) => {
+          if (!err) {
+            const {exists, outdated, moduleName, installedHash, candidateHash} = result;
+
+            const _doAdd = cb => {
+              _installModule(module, type, cb);
+            };
+            const _doRemove = cb => {
+              this.removeModule(moduleName, type, cb);
+            };
+            const _doUpdateHash = cb => {
+              hasher.setModuleHash(moduleName, type, candidateHash, cb);
+            };
+            const _doValidateHash = () => {
+              hasher.setValidatedModuleHash(moduleName, type, candidateHash);
+            };
+
+            if (!exists) {
+              _doAdd(err => {
                 if (!err) {
-                  cb();
-                } else {
-                  cb(err);
-                }
-              });
-            } else {
-              const localModulePath = path.join(__dirname, module);
-              fs.copy(localModulePath, modulePath, err => {
-                if (!err) {
-                  _npmInstall(moduleName, type, err => {
+                  _doUpdateHash(err => {
                     if (!err) {
+                      _doValidateHash();
+
                       cb();
                     } else {
                       cb(err);
@@ -977,227 +1281,77 @@ const _addModule = (module, type, cb) => {
                   cb(err);
                 }
               });
-            }
-          });
-        } else {
-          cb(err);
-
-          cleanup();
-        }
-      });  
-    } else {
-      const moduleName = module;
-
-      _npmAdd(moduleName, type, err => {
-        if (!err) {
-          const modulePackageJsonPath = _getInstalledModulePackageJsonPath(moduleName, type);
-
-          fs.readFile(modulePackageJsonPath, 'utf8', (err, s) => {
-            if (!err) {
-              const j = JSON.parse(s);
-              cb(null, j);
             } else {
-              cb(err);
-            }
-          });
-        } else {
-          cb(err);
-        }
-      });
-    }
-  };
-  const _npmAdd = (module, type, cb) => {
-    _queueNpm(cleanup => {
-      const npmAdd = child_process.spawn(
-        npmCommands.add[0],
-        npmCommands.add.slice(1).concat([ module ]),
-        {
-          cwd: path.join(__dirname, 'installed', type),
-        }
-      );
-      npmAdd.stdout.pipe(process.stdout);
-      npmAdd.stderr.pipe(process.stderr);
-      npmAdd.on('exit', code => {
-        if (code === 0) {
-          cb();
-        } else {
-          const err = new Error('npm add error: ' + code);
-          cb(err);
-        }
-
-        cleanup();
-      });
-    });
-  };
-  const _npmInstall = (moduleName, type, cb) => {
-    _queueNpm(cleanup => {
-      const modulePath = _getInstalledModulePath(moduleName, type);
-
-      const npmInstall = child_process.spawn(
-        npmCommands.install[0],
-        npmCommands.install.slice(1),
-        {
-          cwd: modulePath,
-        }
-      );
-      npmInstall.stdout.pipe(process.stdout);
-      npmInstall.stderr.pipe(process.stderr);
-      npmInstall.on('exit', code => {
-        if (code === 0) {
-          cb();
-        } else {
-          const err = new Error('npm install error: ' + code);
-          cb(err);
-        }
-
-        cleanup();
-      });
-    });
-  };
-
-  mkdirp(path.join(__dirname, 'installed', type), err => {
-    if (!err) {
-      _getModuleInstallStatus(module, type, (err, result) => {
-        if (!err) {
-          const {exists, outdated, moduleName, installedHash, candidateHash} = result;
-
-          const _doAdd = cb => {
-            _downloadModule(module, type, cb);
-          };
-          const _doRemove = cb => {
-            _removeModule(moduleName, type, cb);
-          };
-          const _doUpdateHash = cb => {
-            _setModuleHash(moduleName, type, candidateHash, cb);
-          };
-          const _doValidateHash = () => {
-            _setValidatedModuleHash(moduleName, type, candidateHash);
-          };
-
-          if (!exists) {
-            _doAdd(err => {
-              if (!err) {
-                _doUpdateHash(err => {
+              if (outdated) {
+                _doRemove(err => {
                   if (!err) {
-                    _doValidateHash();
+                    _doAdd(err => {
+                      if (!err) {
+                        _doUpdateHash(err => {
+                          if (!err) {
+                            _doValidateHash();
 
-                    cb();
+                            cb();
+                          } else {
+                            cb(err);
+                          }
+                        });
+                      } else {
+                        cb(err);
+                      }
+                    });
                   } else {
                     cb(err);
                   }
                 });
               } else {
-                cb(err);
+                _doValidateHash();
+
+                cb();
               }
-            });
-          } else {
-            if (outdated) {
-              _doRemove(err => {
-                if (!err) {
-                  _doAdd(err => {
-                    if (!err) {
-                      _doUpdateHash(err => {
-                        if (!err) {
-                          _doValidateHash();
-
-                          cb();
-                        } else {
-                          cb(err);
-                        }
-                      });
-                    } else {
-                      cb(err);
-                    }
-                  });
-                } else {
-                  cb(err);
-                }
-              });
-            } else {
-              _doValidateHash();
-
-              cb();
             }
+          } else {
+            cb(err);
           }
-        } else {
-          cb(err);
+        });
+      } else {
+        cb(err);
+      }
+    });
+  }
+
+  removeModule(moduleName, type, cb) {
+    const {hasher, pather} = this;
+
+    hasher.unsetValidatedModuleHash(moduleName, type);
+    hasher.unsetModuleHash(moduleName, type, err => {
+      if (!err) {
+        const modulePath = pather.getInstalledModulePath(moduleName, type);
+        rimraf(modulePath, cb);
+      } else {
+        cb(err);
+      }
+    });
+  }
+
+  queueNpm(handler) {
+    const {running, queue} = this;
+
+    if (!running) {
+      this.running = true;
+
+      handler(() => {
+        this.running = false;
+
+        if (queue.length > 0) {
+          this.queueNpm(queue.pop());
         }
       });
     } else {
-      cb(err);
+      queue.push(handler);
     }
-  });
-};
-
-const _getServer = () => {
-  const certs = _loadCerts();
-
-  const server = spdy.createServer({
-    cert: certs.cert,
-    key: certs.privateKey,
-  });
-
-  process.nextTick(() => {
-    server.listen(defaultConfig.port);
-  });
-
-  return server;
-};
-
-const _loadCerts = () => {
-  const _getOldCerts = () => {
-    const _getFile = fileName => {
-      try {
-        return fs.readFileSync(path.join(__dirname, defaultConfig.dataDirectory, 'crypto', fileName), 'utf8');
-      } catch(err) {
-        if (err.code !== 'ENOENT') {
-          console.warn(err);
-        }
-        return null;
-      }
-    };
-
-    const privateKey = _getFile('private.pem');
-    const cert = _getFile('cert.pem');
-    if (privateKey && cert) {
-      return {
-        privateKey,
-        cert,
-      };
-    } else {
-      return null;
-    }
-  };
-
-  const _getNewCerts = () => {
-    const keys = cryptoutils.generateKeys();
-    const publicKey = keys.publicKey;
-    const privateKey = keys.privateKey;
-    const cert = cryptoutils.generateCert(keys, {
-      commonName: defaultConfig.hostname,
-    });
-
-    const cryptoDirectory = path.join(__dirname, defaultConfig.dataDirectory, 'crypto');
-    const _makeCryptoDirectory = () => {
-      mkdirp.sync(cryptoDirectory);
-    };
-    const _setFile = (fileName, fileData) => {
-      fs.writeFileSync(path.join(cryptoDirectory, fileName), fileData);
-    };
-
-    _makeCryptoDirectory();
-    _setFile('public.pem', publicKey);
-    _setFile('private.pem', privateKey);
-    _setFile('cert.pem', cert);
-
-    return {
-      privateKey,
-      cert,
-    };
-  };
-
-  return _getOldCerts() || _getNewCerts();
-};
+  }
+}
 
 const _instantiate = (o, arg) => {
   if (typeof o === 'function') {
@@ -1210,75 +1364,8 @@ const _instantiate = (o, arg) => {
     return o;
   }
 };
-const _uninstantiate = api => (typeof api.unmount === 'function') ? api.unmount() : null;
+// const _uninstantiate = api => (typeof api.unmount === 'function') ? api.unmount() : null;
 
-const _removeModule = (moduleName, type, cb) => {
-  _unsetValidatedModuleHash(moduleName, type);
-  _unsetModuleHash(moduleName, type, err => {
-    if (!err) {
-      const modulePath = _getInstalledModulePath(moduleName, type);
-      rimraf(modulePath, cb);
-    } else {
-      cb(err);
-    }
-  });
-};
-
-const _queueNpm = (() => {
-  let running = false;
-  const queue = [];
-
-  const _next = handler => {
-    if (!running) {
-      running = true;
-
-      handler(() => {
-        running = false;
-
-        if (queue.length > 0) {
-          _next(queue.pop());
-        }
-      });
-    } else {
-      queue.push(handler);
-    }
-  };
-
-  return _next;
-})();
-
-const _getModuleRealName = (module, type, cb) => {
-  if (path.isAbsolute(module)) {
-    const packageJsonPath = _getLocalModulePackageJsonPath(module);
-
-    fs.readFile(packageJsonPath, 'utf8', (err, s) => {
-      if (!err) {
-        const j = JSON.parse(s);
-        const moduleName = j.name;
-        const displayName = module.match(/([^\/]*)$/)[1];
-
-        if (moduleName === displayName) {
-          cb(null, moduleName);
-        } else {
-          const err = new Error('module name in package.json does not match path: ' + JSON.stringify(module));
-          cb(err);
-        }
-      } else {
-        cb(err);
-      }
-    });
-  } else {
-    process.nextTick(() => {
-      const moduleName = module;
-      cb(null, moduleName);
-    });
-  }
-};
-const _getInstalledModulePath = (moduleName, type) => path.join(__dirname, 'installed', type, 'node_modules', moduleName);
-const _getLocalModulePath = module => path.join(__dirname, module);
-const _getInstalledModulePackageJsonPath = (moduleName, type) => path.join(_getInstalledModulePath(moduleName, type), 'package.json');
-const _getLocalModulePackageJsonPath = module => path.join(_getLocalModulePath(module), 'package.json');
-
-const archae = (opts) => new ArchaeServer(opts);
+const archae = opts => new ArchaeServer(opts);
 
 module.exports = archae;
