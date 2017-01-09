@@ -2,8 +2,13 @@
 
 A Javascript plugin system for modern web apps.
 
+#### Installation
 ```sh
 npm install archae # requires node 6+
+```
+
+#### Run demo
+```sh
 npm start # run demo on https://localhost:8000/
 ```
 
