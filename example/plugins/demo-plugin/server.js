@@ -39,4 +39,4 @@ module.exports = class DemoPlugin {
   unmount() {
     this._cleanup();
   }
-}
+};
