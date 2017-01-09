@@ -2,7 +2,7 @@
 
 A full-stack Javascript plugin system for modern web apps, built around `npm`.
 
-Archae was originally built for the needs of hot-loading virtual reality (WebVR) plugins for [`zeo`](https://modules.io/zeo), but it's application-agnostic. As long as your stack involves `node` and a browser.
+Archae was originally built for the needs of hot-loading virtual reality (WebVR) plugins for [`zeo`](https://modules.io/zeo), but it's stack-agnostic. As long as your stack involves `node` and a browser.
 
 Archae is well-suited for complex web applications that want to dynamically load functionality across the server/client/worker barrier. Examples include multi-user apps, resource/network-heavy user interfaces, and any app in which getting the pieces working together is a thing you're thinking about.
 
@@ -18,20 +18,22 @@ npm install archae # requires node 6+
 npm start # run demo on https://localhost:8000/
 ```
 
-## Description
+## How it works
 
-Archae lets you install (and remove) functionality atomically on your live web app, whether your code needs to run on the server or client. Archae _plugins_ are just `npm` modules written for _engines_ (also npm modules). As long as your `npm` module exposes a function to `mount` and `unmount` on the client and/or server (both optional), `archae` will automagically server and load it.
+Archae is a library that loads _plugins_. Archae _plugins_ are just `npm` modules with some keys in the `package.json` that tell Archae which `.js` file to load, and where -- `client`, `server`, or `worker`, all optional. Your `.js` file exports a `mount` and `unmount` callback that will be called when your plugin is loaded or needs to be unloaded.
 
-Notable features:
+That's it! If your `npm` module meets this spec, it's an Archae _plugin_ that can be loaded into your app.
 
-- Built around `npm`
+## Features
+
+- Pure JS, only dependency is `node` and `npm`
 - ES6 support
-- `require`, `module.exports`, `import`, `export`
-- HTTP/2 required
-- Automatic bundling
+- Automatic bundling with `rollup`
+- HTTP/2
+- `require`, `module.exports`, `import`, `export` anything from `npm` the usual way
 - Isomorphic API on both client and server
 
-## Example: server-side `left-pad`!
+## Example plugin: server-side `left-pad`!
 
 #### package.json
 ```json
@@ -170,7 +172,7 @@ This example is in [`example/plugins/demo-plugin`](https://github.com/modulesio/
 
 Archae pulls, builds, loads, and caches `npm` modules on the backend, and serves them to the frontend over HTTP/2, as long as they meet the above `mount`/`unmount` spec.
 
-All you have to do to use archae is instantiate it in your app:
+All you have to do to use Archae is instantiate it in your app:
 
 #### index.js
 ```js
