@@ -164,7 +164,7 @@ module.exports = archae => ({
 });
 ```
 
-This example is in `/example/plugins/demo-plugin`. You can run it with `npm start` in the repository root.
+This example is in [`example/plugins/demo-plugin`](https://github.com/modulesio/archae/tree/master/example/plugins/demo-plugin). You can run it with `npm start` in the repository root.
 
 ## How it works
 
