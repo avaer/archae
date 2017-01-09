@@ -8,10 +8,14 @@ module.exports = archae => ({
       textLabel.style.marginRight = '10px';
       const text = document.createElement('input');
       text.type = 'text';
+      text.value = 'Blah blah';
       text.placeholder = 'Enter some text';
-      text.autofocus = true;
       textLabel.appendChild(text);
       element.appendChild(textLabel);
+
+      setTimeout(() => {
+        text.focus();
+      });
 
       const numberLabel = document.createElement('label');
       numberLabel.innerHTML = 'Padding: ';

@@ -7,16 +7,26 @@
 </head>
 <body>
   <h1>Hello, World!</h1>
-
+  <label>
+    <input id=plugin-checkbox type=checkbox />
+    Load demo plugin
+  </label>
+  <hr/>
 <script src="/archae/archae.js"></script>
 <script>
-archae.requestPlugin('/plugins/demo-plugin')
-  .then(demoPlugin => {
-    console.log('got demo plugin');
-  })
-  .catch(err => {
-    console.warn(err);
-  });
+const PLUGIN_SRC = '/plugins/demo-plugin';
+
+const pluginCheckbox = document.getElementById('plugin-checkbox');
+pluginCheckbox.addEventListener('change', e => {
+  if (e.target.checked) {
+    archae.requestPlugin(PLUGIN_SRC)
+      .catch(err => {
+        console.warn(err);
+      });
+  } else {
+    archae.releasePlugin(PLUGIN_SRC);
+  }
+});
 </script>
 </body>
 </html>
