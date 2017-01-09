@@ -1,13 +1,19 @@
 # Archae
 
-A Javascript plugin system for modern web apps.
+A full-stack Javascript plugin system for modern web apps, built around `npm`.
+
+Archae was originally built for the needs of hot-loading virtual reality (WebVR) plugins for [`zeo`](https://modules.io/zeo), but it's application-agnostic. As long as your stack involves `node` and a browser.
+
+Archae is well-suited for complex web applications that want to dynamically load functionality across the server/client/worker barrier. Examples include multi-user apps, resource/network-heavy user interfaces, and any app in which getting the pieces working together is a thing you're thinking about.
+
+It's less well-suited for simple static CRUD apps. In that case you probably just want a web framework and a bundler.
 
 #### Installation
 ```sh
 npm install archae # requires node 6+
 ```
 
-#### Run demo
+#### Run the demo
 ```sh
 npm start # run demo on https://localhost:8000/
 ```
@@ -18,7 +24,7 @@ Archae lets you install (and remove) functionality atomically on your live web a
 
 Notable features:
 
-- Works with `npm`
+- Built around `npm`
 - ES6 support
 - `require`, `module.exports`, `import`, `export`
 - HTTP/2 required
