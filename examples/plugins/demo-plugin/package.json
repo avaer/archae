@@ -1,0 +1,8 @@
+{
+  "name": "demo-plugin",
+  "client": "client.js",
+  "server": "server.js",
+  "dependencies": {
+    "left-pad": "^1.1.3"
+  }
+}

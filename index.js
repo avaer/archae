@@ -17,8 +17,10 @@ const MultiMutex = require('multimutex');
 const fsHasher = require('fs-hasher');
 
 const defaultConfig = {
-  hostname: 'zeo.sh',
+  hostname: 'archae',
+  host: null,
   port: 8000,
+  publicDirectory: null,
   dataDirectory: 'data',
 };
 
@@ -41,19 +43,28 @@ if (!npmCommands) {
 const nameSymbol = Symbol();
 
 class ArchaeServer {
-  constructor({dirname, server, app, wss} = {}) {
+  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, server, app, wss} = {}) {
     dirname = dirname || process.cwd();
     this.dirname = dirname;
-    if (!server) {
-      server = this.getServer();
 
-      process.nextTick(() => {
-        server.listen(defaultConfig.port);
-      });
-    }
+    hostname = hostname || defaultConfig.hostname;
+    this.hostname = hostname;
+
+    port = port || defaultConfig.port;
+    this.port = port;
+
+    publicDirectory = publicDirectory || defaultConfig.publicDirectory;
+    this.publicDirectory = publicDirectory;
+
+    dataDirectory = dataDirectory || defaultConfig.dataDirectory;
+    this.dataDirectory = dataDirectory;
+
+    server = server ||this.getServer();
     this.server = server;
+
     app = app || express();
     this.app = app;
+
     wss = wss || new ws.Server({
       noServer: true,
     });
@@ -82,12 +93,12 @@ class ArchaeServer {
   }
 
   loadCerts() {
-    const {dirname} = this;
+    const {dirname, hostname, dataDirectory} = this;
 
     const _getOldCerts = () => {
       const _getFile = fileName => {
         try {
-          return fs.readFileSync(path.join(dirname, defaultConfig.dataDirectory, 'crypto', fileName), 'utf8');
+          return fs.readFileSync(path.join(dirname, dataDirectory, 'crypto', fileName), 'utf8');
         } catch(err) {
           if (err.code !== 'ENOENT') {
             console.warn(err);
@@ -113,10 +124,10 @@ class ArchaeServer {
       const publicKey = keys.publicKey;
       const privateKey = keys.privateKey;
       const cert = cryptoutils.generateCert(keys, {
-        commonName: defaultConfig.hostname,
+        commonName: hostname,
       });
 
-      const cryptoDirectory = path.join(dirname, defaultConfig.dataDirectory, 'crypto');
+      const cryptoDirectory = path.join(dirname, dataDirectory, 'crypto');
       const _makeCryptoDirectory = () => {
         mkdirp.sync(cryptoDirectory);
       };
@@ -601,6 +612,7 @@ class ArchaeServer {
 
   unmountModule(module, exportInstances, exportApis, cb) {
     const moduleInstance = exportInstances[module];
+
     if (moduleInstance !== undefined) {
       Promise.resolve(typeof moduleInstance.unmount === 'function' ? moduleInstance.unmount : null)
         .then(() => {
@@ -632,7 +644,12 @@ class ArchaeServer {
   }
 
   mountApp() {
-    const {dirname, server, app, wss} = this;
+    const {dirname, publicDirectory, server, app, wss} = this;
+
+    // ser public
+    if (publicDirectory) {
+      app.use('/', express.static(path.join(dirname, publicDirectory)));
+    }
 
     // public
     app.use('/', express.static(path.join(__dirname, 'public')));
@@ -845,6 +862,30 @@ class ArchaeServer {
         });
       }
     });
+  }
+
+  listen(cb) {
+    const {host, port, server} = this;
+
+    const listening = () => {
+      cb();
+
+      _cleanup();
+    };
+    const error = err => {
+      cb(err);
+
+      _cleanup();
+    };
+
+    const _cleanup = () => {
+      server.removeListener('listening', listening);
+      server.removeListener('error', error);
+    };
+
+    server.listen(port, host);
+    server.on('listening', listening);
+    server.on('error', error);
   }
 }
 
