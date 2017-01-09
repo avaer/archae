@@ -1,53 +1,151 @@
 # Archae
 
-The stupid npm plugin system.
+A Javascript plugin system for modern web apps.
 
-Archae lets you build your app as a set of _plugins_ (npm modules) written for _engines_ (also npm modules). As long as your `npm` module exposes a function to `mount` and `unmount` on the client and/or server (both optional), `archae` will automagically load and serve everything for you, so you can forget about the details and focus on your app. As a bonus you get free goodies like:
+```sh
+npm install archae # requires node 6+
+npm start # run demo on https://localhost:8000/
+```
 
-- ES6
+## Description
+
+Archae lets you install (and remove) functionality atomically on your live web app, whether your code needs to run on the server or client. Archae _plugins_ are just `npm` modules written for _engines_ (also npm modules). As long as your `npm` module exposes a function to `mount` and `unmount` on the client and/or server (both optional), `archae` will automagically server and load it.
+
+Notable features:
+
+- Works with `npm`
+- ES6 support
 - `require`, `module.exports`, `import`, `export`
-- HTTP/2
-- Automatic webpack builds
-- Batteries-included engines for databases, frontend rendering, WebGL, and more
+- HTTP/2 required
+- Automatic bundling
+- Isomorphic API on both client and server
 
-## Simple example
+## Example: server-side `left-pad`!
 
 #### package.json
 ```json
 {
-  name: "my-plugin",
+  "name": "demo-plugin",
   "client": "client.js",
   "server": "server.js",
-  dependencies: {
-    "my-dep": "^1.0.0"
+  "dependencies": {
+    "left-pad": "^1.1.3"
   }
 }
 ```
 
+#### server.js
+```js
+const leftPad = require('left-pad');
+
+module.exports = class DemoPlugin {
+  constructor(archae) {
+    this.archae = archae;
+  }
+
+  mount() {
+    const {archae} = this;
+    const {express, app} = archae.getCore();
+
+    function serveLeftPad(req, res, next) {
+      const n = parseInt(req.get('left-pad'), 10) || 0;
+
+      let s = '';
+      req.setEncoding('utf8');
+      req.on('data', data => {
+        s += data;
+      });
+      req.on('end', () => {
+        res.send(leftPad(s, s.length + n));
+      });
+    }
+    app.post('/left-pad', serveLeftPad);
+
+    this._cleanup = () => {
+      function removeMiddlewares(route, i, routes) {
+        if (route.handle.name === 'serveLeftPad') {
+          routes.splice(i, 1);
+        }
+        if (route.route) {
+          route.route.stack.forEach(removeMiddlewares);
+        }
+      }
+      app._router.stack.forEach(removeMiddlewares);
+    };
+  }
+
+  unmount() {
+    this._cleanup();
+  }
+};
+```
+
 #### client.js
-```json
+```js
 module.exports = archae => ({
   mount() {
-    let message = 'Running in the browser!';
-    let n = 0;
-    const _updateText = () => {
-      element.textContent = message + ' You clicked ' + n + ' times.';
-    };
+    const element = (() => {
+      const element = document.createElement('form');
 
-    const element = document.createElement('h1');
-    element.onclick = () => {
-      n++;
-      _updateText();
-    };
+      const textLabel = document.createElement('label');
+      textLabel.innerHTML = 'Input text: ';
+      textLabel.style.marginRight = '10px';
+      const text = document.createElement('input');
+      text.type = 'text';
+      text.value = 'Blah blah';
+      text.placeholder = 'Enter some text';
+      textLabel.appendChild(text);
+      element.appendChild(textLabel);
+
+      setTimeout(() => {
+        text.focus();
+      });
+
+      const numberLabel = document.createElement('label');
+      numberLabel.innerHTML = 'Padding: ';
+      const number = document.createElement('input');
+      number.type = 'number';
+      number.value = 10;
+      numberLabel.appendChild(number);
+      element.appendChild(numberLabel);
+
+      const submit = document.createElement('input');
+      submit.type = 'submit';
+      submit.value = 'Left-pad it on the server!';
+      submit.style.display = 'block';
+      submit.style.margin = '10px 0';
+      element.appendChild(submit);
+
+      const result = document.createElement('textarea');
+      result.style.width = '400px';
+      result.style.height = '200px';
+      element.appendChild(result);
+
+      element.addEventListener('submit', e => {
+        fetch('/left-pad', {
+          method: 'POST',
+          headers: {
+            'left-pad': number.value,
+          },
+          body: text.value,
+        })
+          .then(res => res.text()
+            .then(s => {
+              result.value = s;
+            })
+          )
+          .catch(err => {
+            console.warn(err);
+          });
+
+        e.preventDefault();
+      });
+
+      return element;
+    })();
     this.element = element;
-    document.body.appendChild(element);
 
-    return {
-      changeMessage(m) {
-        message = m;
-        _updateText();
-      }
-    };
+    document.body.appendChild(element);
   },
   unmount() {
     document.body.removeChild(this.element);
@@ -55,52 +153,56 @@ module.exports = archae => ({
 });
 ```
 
-#### server.js
-```json
-module.exports = archae => ({
-  mount() {
-    console.log('Running on the server!');
-  },
-  unmount() {
-    console.log('Bye bye!');
-  }
-});
-```
+This example is in `/example/plugins/demo-plugin`. You can run it with `npm start` in the repository root.
 
 ## How it works
 
-Arche pulls, builds, loads, and caches `npm` modules on the backend using `yarn` (for speed), and serves them to the frontend over HTTP/2 (for speed + security), as long as they meet the above spec.
+Arche pulls, builds, loads, and caches `npm` modules on the backend, and serves them to the frontend over HTTP/2, as long as they meet the above `mount`/`unmount` spec.
 
-Plugins can be bare JS and can `require` anything they need, and they can load other plugins as needed, but a more powerful way to write your apps is to write them against the `archae` engines: these are npm modules that meet the same API, but whose main role is to provide a _service_ to other plugins. For example, there is an `nedb` engine for persistent storage via a mongodb API on both client and server, and a `three` frontend engine that will set up `three.js` rendering on your page and give you an API for it. By depending on engines you don't have to worry about bootstrapping, while having the freedom to pick and choose the technologies you use, and keeping your code portable by separating your libraries from your application logic.
+All you have to do to use archae is instantiate it in your app:
 
-The Archae core is isomorphic on both the client and server so if you want you can load and unload plugins on either the server or the client -- it's all the same, and it all happens live.
+#### index.js
+```js
+const archae = require('archae');
 
-## Definitions
+const a = archae();
+a.listen(err => {
+  if (!err) {
+    console.log('https://localhost:8000/');
+  } else {
+    console.warn(err);
+  }
+});
+console.log('server-side Archae API:', a);
+```
 
-#### Engine
+...and then load it on your frontend:
 
-Engines are the _non_ user-replaceable parts of your app. They are the APIs you write for. You can depend on them, you can pick and choose them, and you can even write your own. Examples of engines:
+#### index.html
+```html
+<!DOCTYPE html>
+<html>
+<body>
+  <script src="/archae/archae.js"></script>
+  <script>
+    console.log('client-side Archae API:', archae);
+  </script>
+</body>
+</html>
+```
 
-[react-dom](https://www.npmjs.com/package/react-dom)
-[express](https://github.com/expressjs/express)
-[Three.js](https://github.com/mrdoob/three.js/)
-[ammo.js](https://github.com/kripken/ammo.js/)
-[redis](https://github.com/NodeRedis/node_redis)
-[node-http-proxy](https://github.com/nodejitsu/node-http-proxy)
+From here, you can use the `archae` API to `request` (load) and `release` (unload) plugins. The API is isomorphic and works the same both the frontend and backend. It's built around the `Promise` API:
 
-Notice that engines can exist on the client, server, or both.
+## Archae API
 
-Because engines are written in terms of the universal Archae API, you don't have to care about how to start or shut down your engines, how they work, or even where they're running -- that's their responsibility.
+#### getCore() : `Object`
 
-#### Plugin
+// XXX
 
-Plugins are the user-replaceable parts of your app. They are plain NPM modules. They can be whatever Javscript you want, but to actually do real-world stuff, you probably want to write them to use your engine's APIs. A plugin is encouraged to use as many engines as it needs, on both the client and server side. It can use all of these simultaneously.
+#### requestPlugin(pluginPath) : `Promise(pluginApi : Object)`
 
-The only hard requirements for a plugin are that
+// XXX
 
-a) it cleans up after itself, and
-b) it does not play outside of its sandbox, interfering with the infrastructure or other plugins
+#### releasePlugin() : `Promise()`
 
-#### Archae
-
-The role of archae in all of this is to be the glue that runs your engines, wires them up to your plugins, and exposes a nice configuration API on top.
+// XXX
