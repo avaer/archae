@@ -95,104 +95,12 @@ const nameSymbol = Symbol();
 
 class ArchaeClient {
   constructor() {
-    this.engines = {};
-    this.engineInstances = {};
-    this.engineApis = {};
     this.plugins = {};
     this.pluginInstances = {};
     this.pluginApis = {};
+    this.pluginsMutex = new MultiMutex();
 
     this.moduleDescriptors = new Map();
-
-    this.enginesMutex = new MultiMutex();
-    this.pluginsMutex = new MultiMutex();
-  }
-
-  requestEngine(engine) {
-    return new Promise((accept, reject) => {
-      const id = _makeId();
-
-      const cb = (err, result) => {
-        if (!err) {
-          accept(result);
-        } else {
-          reject(err);
-        }
-      };
-
-      this.request('requestEngine', {
-        engine,
-      }, (err, result) => {
-        if (!err) {
-          const {engineName, hasClient} = result;
-
-          const {enginesMutex} = this;
-          enginesMutex.lock(engineName)
-            .then(unlock => {
-              const unlockCb = (err, result) => {
-                cb(err, result);
-
-                unlock();
-              };
-
-              const existingEngine = this.engines[engineName];
-
-              if (existingEngine !== undefined) {
-                const engineApi = this.engineApis[engineName];
-                unlockCb(null, engineApi);
-              } else {
-                this.loadEngine(engineName, hasClient, err => {
-                  if (!err) {
-                    this.mountEngine(engineName, err => {
-                      if (!err) {
-                        const engineApi = this.engineApis[engineName];
-                        unlockCb(null, engineApi);
-                      } else {
-                        unlockCb(err);
-                      }
-                    });
-                  } else {
-                    unlockCb(err);
-                  }
-                });
-              }
-          })
-          .catch(cb);
-        } else {
-          cb(err);
-        }
-      });
-    });
-  }
-
-  requestEngines(engines) {
-    const requestEnginePromises = engines.map(engine => this.requestEngine(engine));
-    return Promise.all(requestEnginePromises);
-  }
-
-  releaseEngine(engine) {
-    return new Promise((accept, reject) => {
-      this.request('releaseEngine', {
-        engine,
-      }, (err, result) => {
-        if (!err) {
-          const {engineName} = result;
-          const oldEngineApi = this.engineApis[engineName];
-
-          this.unmountEngine(engineName, err => {
-            if (err) {
-              console.warn(err);
-            }
-
-            this.unloadEngine(engineName);
-
-            accept(oldEngineApi);
-          });
-        } else {
-          reject(err);
-        }
-      });
-    });
   }
 
   requestPlugin(plugin) {
@@ -390,36 +298,68 @@ class ArchaeClient {
     this.connect();
   }
 
-  loadEngine(engine, hasClient, cb) {
-    this.loadModule(engine, 'engines', engine, this.engines, hasClient, cb);
-  }
-
-  unloadEngine(engine) {
-    this.unloadModule(engine, this.engines);
-  }
-
-  mountEngine(engine, cb) {
-    this.mountModule(engine, 'engines', this.engines, this.engineInstances, this.engineApis, this.moduleDescriptors, cb);
-  }
-
-  unmountEngine(engine, cb) {
-    this.unmountModule(engine, this.engineInstances, this.engineApis, this.moduleDescriptors, cb);
-  }
-
   loadPlugin(plugin, hasClient, cb) {
     this.loadModule(plugin, 'plugins', plugin, this.plugins, hasClient, cb);
   }
 
-  unloadPlugin(plugin) {
-    this.unloadModule(plugin, this.plugins);
+  unloadPlugin(pluginName) {
+    delete this.plugins[pluginName];
   }
 
   mountPlugin(plugin, cb) {
-    this.mountModule(plugin, 'plugins', this.plugins, this.pluginInstances, this.pluginApis, this.moduleDescriptors, cb);
+    const moduleRequire = this.plugins[plugin];
+
+    if (moduleRequire) {
+      Promise.resolve(_instantiate(moduleRequire, this))
+        .then(pluginInstance => {
+          this.pluginInstances[plugin] = pluginInstance;
+          this.moduleDescriptors.set(pluginInstance, {
+            type: 'plugins',
+            name: plugin,
+          });
+
+          Promise.resolve(pluginInstance.mount())
+            .then(pluginApi => {
+              if (typeof pluginApi !== 'object' || pluginApi === null) {
+                pluginApi = {};
+              }
+              pluginApi[nameSymbol] = plugin;
+
+              this.pluginApis[plugin] = pluginApi;
+
+              cb();
+            })
+            .catch(err => {
+              cb(err);
+            });
+        })
+        .catch(err => {
+          cb(err);
+        });
+    } else {
+      this.pluginInstances[plugin] = null;
+      this.pluginApis[plugin] = {
+        [nameSymbol]: plugin,
+      };
+
+      cb();
+    }
   }
 
-  unmountPlugin(plugin, cb) {
-    this.unmountModule(plugin, this.pluginInstances, this.pluginApis, this.moduleDescriptors, cb);
+  unmountPlugin(pluginName, cb) {
+    const pluginInstance = this.pluginInstances[pluginName];
+
+    Promise.resolve(typeof pluginInstance.unmount === 'function' ? pluginInstance.unmount() : null)
+      .then(() => {
+        delete this.pluginInstances[pluginName];
+        delete this.pluginApis[pluginName];
+        this.moduleDescriptors.delete(pluginInstance);
+
+        cb();
+      })
+      .catch(err => {
+        cb(err);
+      });
   }
 
   loadModule(module, type, target, exports, hasClient, cb) {
@@ -442,66 +382,6 @@ class ArchaeClient {
     } else {
       cb();
     }
-  }
-
-  unloadModule(module, exports) {
-    delete exports[module];
-  }
-
-  mountModule(module, type, exports, moduleInstances, moduleApis, moduleDescriptors, cb) {
-    const moduleRequire = exports[module];
-
-    if (moduleRequire) {
-      Promise.resolve(_instantiate(moduleRequire, this))
-        .then(moduleInstance => {
-          moduleInstances[module] = moduleInstance;
-          moduleDescriptors.set(moduleInstance, {
-            type,
-            name: module,
-          });
-
-          Promise.resolve(moduleInstance.mount())
-            .then(moduleApi => {
-              if (typeof moduleApi !== 'object' || moduleApi === null) {
-                moduleApi = {};
-              }
-              moduleApi[nameSymbol] = module;
-
-              moduleApis[module] = moduleApi;
-
-              cb();
-            })
-            .catch(err => {
-              cb(err);
-            });
-        })
-        .catch(err => {
-          cb(err);
-        });
-    } else {
-      moduleInstances[module] = null;
-      moduleApis[module] = {
-        [nameSymbol]: module,
-      };
-
-      cb();
-    }
-  }
-
-  unmountModule(module, moduleInstances, moduleApis, moduleDescriptors, cb) {
-    const moduleInstance = moduleInstances[module];
-
-    Promise.resolve(typeof moduleInstance.unmount === 'function' ? moduleInstance.unmount() : null)
-      .then(() => {
-        delete moduleInstances[module];
-        delete moduleApis[module];
-        moduleDescriptors.delete(moduleInstance);
-
-        cb();
-      })
-      .catch(err => {
-        cb(err);
-      });
   }
 
   getCore() {
