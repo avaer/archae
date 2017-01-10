@@ -79,14 +79,9 @@ class ArchaeServer {
 
     this.connections = [];
 
-    this.engines = {};
-    this.engineInstances = {};
-    this.engineApis = {};
     this.plugins = {};
     this.pluginInstances = {};
     this.pluginApis = {};
-
-    this.enginesMutex = new MultiMutex();
     this.pluginsMutex = new MultiMutex();
 
     this.mountApp();
@@ -156,138 +151,6 @@ class ArchaeServer {
       cert: certs.cert,
       key: certs.privateKey,
     });
-  }
-
-  requestEngine(engine, opts = {}) {
-    return new Promise((accept, reject) => {
-      const {pather, installer} = this;
-
-      const cb = (err, result) => {
-        if (!err) {
-          accept(result);
-        } else {
-          reject(err);
-        }
-      };
-
-      pather.getModuleRealName(engine, 'engines', (err, engineName) => {
-        if (!err) {
-          const {enginesMutex} = this;
-
-          enginesMutex.lock(engineName)
-            .then(unlock => {
-              const unlockCb = (cb => (err, result) => {
-                cb(err, result);
-
-                unlock();
-              })(cb);
-          
-              const _remove = cb => {
-                installer.removeModule(engineName, 'engines', cb);
-              };
-              const _add = cb => {
-                installer.addModule(engine, 'engines', err => {
-                  if (!err) {
-                    const existingEngine = this.engines[engineName];
-                    if (existingEngine !== undefined) {
-                      const engineApi = this.engineApis[engineName];
-                      cb(null, engineApi);
-                    } else {
-                      this.loadEngine(engineName, err => {
-                        if (!err) {
-                          this.mountEngine(engineName, err => {
-                            if (!err) {
-                              const engineApi = this.engineApis[engineName];
-                              cb(null, engineApi);
-                            } else {
-                              cb(err);
-                            }
-                          });
-                        } else {
-                          cb(err);
-                        }
-                      });
-                    }
-                  } else {
-                    cb(err);
-                  }
-                });
-              };
-
-              if (opts.force) {
-                _remove(err => {
-                  if (!err) {
-                    _add(unlockCb);
-                  } else {
-                    unlockCb(err);
-                  }
-                });
-              } else {
-                _add(unlockCb);
-              }
-           })
-           .catch(cb);
-        } else {
-          cb(err);
-        }
-      });
-    });
-  }
-
-  requestEngines(engines, opts = {}) {
-    const requestEnginePromises = engines.map(engine => this.requestEngine(engine, opts));
-    return Promise.all(requestEnginePromises);
-  }
-
-  releaseEngine(engine) {
-    return new Promise((accept, reject) => {
-      const {pather, installer} = this;
-
-      const cb = (err, result) => {
-        if (!err) {
-          accept(result);
-        } else {
-          reject(err);
-        }
-      };
-
-      pather.getModuleRealName(engine, 'engines', (err, engineName) => {
-        this.enginesMutex.lock(engineName)
-          .then(unlock => {
-            const unlockCb = (cb => (err, result) => {
-              cb(err, result);
-
-              unlock();
-            })(cb);
-
-            this.unmountModule(engineName, this.engineInstances, this.engineApis, err => {
-              if (!err) {
-                this.unloadModule(engineName, this.engines);
-
-                installer.removeModule(engineName, 'engines', () => {
-                  if (!err) {
-                    unlockCb(null, {
-                      engineName,
-                    });
-                  } else {
-                    unlockCb(err);
-                  }
-                });
-              } else {
-                unlockCb(err);
-              }
-            });
-          })
-          .catch(err => {
-            unlockCb(err);
-          });
-      });
-    });
-  }
-
-  releaseEngines(engines) {
-    const releaseEnginePromises = engines.map(engine => this.releaseEngine(engine));
-    return Promise.all(releaseEnginePromises);
   }
 
   requestPlugin(plugin, opts = {}) {
@@ -422,102 +285,8 @@ class ArchaeServer {
     return Promise.all(releasePluginPromises);
   }
 
-  getClientModules(cb) {
-    let engines = [];
-    let plugins = [];
-
-    let pending = 2;
-    const pend = () => {
-      if (--pending === 0) {
-        cb(null, {
-          engines: _sort(engines),
-          plugins: _sort(plugins),
-        });
-      }
-    };
-    const _sort = modules => modules.map(m => m.replace(/\.js$/, '')).sort();
-
-    const {dirname} = this;
-    fs.readdir(path.join(dirname, 'installed', 'engines', 'build'), (err, files) => {
-      if (!err) {
-        engines = engines.concat(files);
-      }
-
-      pend();
-    });
-    fs.readdir(path.join(dirname, 'installed', 'plugins', 'build'), (err, files) => {
-      if (!err) {
-        plugins = plugins.concat(files);
-      }
-
-      pend();
-    });
-  }
-
-  getServerModules(cb) {
-    let engines = [];
-    let plugins = [];
-
-    let pending = 2;
-    const pend = () => {
-      if (--pending === 0) {
-        cb(null, {
-          engines: _sort(engines),
-          plugins: _sort(plugins),
-        });
-      }
-    };
-    const _sort = modules => modules.map(m => m.replace(/\.js$/, '')).sort();
-
-    const {dirname} = this;
-    fs.readdir(path.join(dirname, 'installed', 'engines', 'node_modules'), (err, files) => {
-      if (!err) {
-        if (files.length > 0) {
-          let pending = files.length;
-          const pend2 = () => {
-            if (--pending === 0) {
-              pend();
-            }
-          };
-
-          files.forEach(file => {
-            const engine = file;
-
-            fs.readFile(path.join(dirname, 'installed', 'engines', 'node_modules', engine, 'package.json'), 'utf8', (err, s) => {
-              if (!err) {
-                const j = JSON.parse(s);
-                const serverFileName = j.server;
-                if (serverFileName) {
-                  engines.push(engine);
-                }
-
-                pend2();
-              } else {
-                console.warn(err);
-
-                pend2();
-              }
-            });
-          });
-        } else {
-          pend();
-        }
-      } else if (err.code === 'ENOENT') {
-        pend();
-      } else {
-        console.warn(err);
-
-        pend();
-      }
-    });
-  }
-
-  loadEngine(engine, cb) {
-    this.loadModule(engine, 'engines', 'server', this.engines, cb);
-  }
-
-  mountEngine(engine, cb) {
-    this.mountModule(engine, this.engines, this.engineInstances, this.engineApis, cb);
+  getLoadedPlugins() {
+    return Object.keys(this.plugins).sort();
   }
 
   loadPlugin(plugin, cb) {
@@ -540,10 +309,6 @@ class ArchaeServer {
         cb(err);
       }
     });
-  }
-
-  getEngineClient(engine, cb) {
-    this.getModulePackageJsonFileName(engine, 'engines', 'client', cb);
   }
 
   getPluginClient(plugin, cb) {
@@ -655,20 +420,18 @@ class ArchaeServer {
     app.use('/', express.static(path.join(__dirname, 'public')));
 
     // lists
-    app.use('/archae/modules.json', (req, res, next) => {
-      this.getClientModules((err, modules) => {
-        if (!err) {
-          res.json(modules);
-        } else {
-          res.status(500);
-          res.send(err.stack);
-        }
-      });
+    app.use('/archae/plugins.json', (req, res, next) => {
+      const plugins = this.getLoadedPlugins();
+
+      res.type('application/json');
+      res.send(JSON.stringify({
+        plugins,
+      }, null, 2));
     });
 
     // bundles
     const bundleCache = {};
-    app.get(/^\/archae\/(engines|plugins)\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
+    app.get(/^\/archae\/(plugins)\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
       const {params} = req;
       const type = params[0];
       const module = params[1];
@@ -774,43 +537,7 @@ class ArchaeServer {
             };
 
             const {method, args} = m;
-            if (method === 'requestEngine') {
-              const {engine} = args;
-
-              this.requestEngine(engine)
-                .then(engineApi => {
-                  const engineName = this.getName(engineApi);
-
-                  this.getEngineClient(engineName, (err, clientFileName) => {
-                    if (!err) {
-                      const hasClient = Boolean(clientFileName);
-                      cb(null, {
-                        engineName,
-                        hasClient,
-                      });
-                    } else {
-                      cb(err);
-                    }
-                  });
-                })
-                .catch(err => {
-                  cb(err);
-                });
-            } else if (method === 'releaseEngine') {
-              const {engine} = args;
-
-              this.releaseEngine(engine)
-                .then(result => {
-                  const {engineName} = result;
-
-                  cb(null, {
-                    engineName,
-                  });
-                })
-                .catch(err => {
-                  cb(err);
-                });
-            } else if (method === 'requestPlugin') {
+            if (method === 'requestPlugin') {
               const {plugin} = args;
 
               this.requestPlugin(plugin)
@@ -950,7 +677,6 @@ class ArchaeHasher {
     this.moduleHashesMutex = new MultiMutex();
     this.modulesHashesJson = null;
     this.validatedModuleHashes = {
-      engines: {},
       plugins: {},
     };
   }
@@ -982,7 +708,6 @@ class ArchaeHasher {
               unlockCb(null, newModulesHashesJson);
             } else if (err.code === 'ENOENT') {
               const newModulesHashesJson = {
-                engines: {},
                 plugins: {},
               };
               this.modulesHashesJson = newModulesHashesJson;
