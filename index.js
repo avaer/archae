@@ -285,10 +285,10 @@ class ArchaeServer {
     return Promise.all(releasePluginPromises);
   }
 
-  getModulePackageJsonFileName(module, type, packageJsonFileNameKey, cb) {
+  getPackageJsonFileName(plugin, packageJsonFileNameKey, cb) {
     const {dirname} = this;
 
-    fs.readFile(path.join(dirname, 'installed', type, 'node_modules', module, 'package.json'), 'utf8', (err, s) => {
+    fs.readFile(path.join(dirname, 'installed', 'plugins', 'node_modules', plugin, 'package.json'), 'utf8', (err, s) => {
       if (!err) {
         const j = JSON.parse(s);
         const fileName = j[packageJsonFileNameKey];
@@ -300,7 +300,7 @@ class ArchaeServer {
   }
 
   getPluginClient(plugin, cb) {
-    this.getModulePackageJsonFileName(plugin, 'plugins', 'client', cb);
+    this.getPackageJsonFileName(plugin, 'client', cb);
   }
 
   getLoadedPlugins() {
@@ -308,7 +308,7 @@ class ArchaeServer {
   }
 
   loadPlugin(plugin, cb) {
-    this.getModulePackageJsonFileName(plugin, 'plugins', 'server', (err, fileName) => {
+    this.getPackageJsonFileName(plugin, 'server', (err, fileName) => {
       if (!err) {
         if (fileName) {
           const {dirname} = this;
@@ -667,9 +667,7 @@ class ArchaeHasher {
 
     this.moduleHashesMutex = new MultiMutex();
     this.modulesHashesJson = null;
-    this.validatedModuleHashes = {
-      plugins: {},
-    };
+    this.validatedModuleHashes = {};
   }
 
   loadModulesHashesJson(cb) {
@@ -755,10 +753,10 @@ class ArchaeHasher {
     });
   }
 
-  setModuleHash(moduleName, type, hash, cb) {
+  setModuleHash(moduleName, hash, cb) {
     this.loadModulesHashesJson((err, modulesHashesJson) => {
       if (!err) {
-        modulesHashesJson[type][moduleName] = hash;
+        modulesHashesJson[moduleName] = hash;
 
         this.saveModulesHashesJson(cb);
       } else {
@@ -767,10 +765,10 @@ class ArchaeHasher {
     });
   }
 
-  unsetModuleHash(moduleName, type, cb) {
+  unsetModuleHash(moduleName, cb) {
     this.loadModulesHashesJson((err, modulesHashesJson) => {
       if (!err) {
-        delete modulesHashesJson[type][moduleName];
+        delete modulesHashesJson[moduleName];
 
         this.saveModulesHashesJson(cb);
       } else {
@@ -779,21 +777,21 @@ class ArchaeHasher {
     });
   }
 
-  setValidatedModuleHash(moduleName, type, hash) {
+  setValidatedModuleHash(moduleName, hash) {
     const {validatedModuleHashes} = this;
-    validatedModuleHashes[type][moduleName] = hash;
+    validatedModuleHashes[moduleName] = hash;
   }
 
-  unsetValidatedModuleHash(moduleName, type) {
+  unsetValidatedModuleHash(moduleName) {
     const {validatedModuleHashes} = this;
-    delete validatedModuleHashes[type][moduleName];
+    delete validatedModuleHashes[moduleName];
   }
 
-  requestInstalledModuleHash(moduleName, type) {
+  requestInstalledModuleHash(moduleName) {
     return new Promise((accept, reject) => {
       this.loadModulesHashesJson((err, modulesHashesJson) => {
         if (!err) {
-          accept(modulesHashesJson[type][moduleName] || null);
+          accept(modulesHashesJson[moduleName] || null);
         } else {
           reject(err);
         }
@@ -837,12 +835,12 @@ class ArchaeHasher {
     });
   }
 
-  getModuleInstallStatus(module, type, cb) {
+  getModuleInstallStatus(module, cb) {
     const {pather, validatedModuleHashes} = this;
 
     pather.getModuleRealName(module, (err, moduleName) => {
       if (!err) {
-        const validatedHash = validatedModuleHashes[type][moduleName] || null;
+        const validatedHash = validatedModuleHashes[moduleName] || null;
 
         if (validatedHash !== null) {
           const exists = true;
@@ -853,7 +851,7 @@ class ArchaeHasher {
           cb(null, {exists, outdated, moduleName, installedHash, candidateHash});
         } else {
           Promise.all([
-            this.requestInstalledModuleHash(moduleName, type),
+            this.requestInstalledModuleHash(moduleName),
             this.requestInstallCandidateModuleHash(module),
           ])
             .then(([
@@ -958,7 +956,7 @@ class ArchaeInstaller {
           npmCommands.add[0],
           npmCommands.add.slice(1).concat([ module ]),
           {
-            cwd: path.join(dirname, 'installed', type),
+            cwd: path.join(dirname, 'installed', 'plugins'),
           }
         );
         npmAdd.stdout.pipe(process.stdout);
@@ -1005,7 +1003,7 @@ class ArchaeInstaller {
       if (!err) {
         const {hasher} = this;
 
-        hasher.getModuleInstallStatus(module, type, (err, result) => {
+        hasher.getModuleInstallStatus(module, (err, result) => {
           if (!err) {
             const {exists, outdated, moduleName, installedHash, candidateHash} = result;
 
@@ -1016,10 +1014,10 @@ class ArchaeInstaller {
               this.removeModule(moduleName, type, cb);
             };
             const _doUpdateHash = cb => {
-              hasher.setModuleHash(moduleName, type, candidateHash, cb);
+              hasher.setModuleHash(moduleName, candidateHash, cb);
             };
             const _doValidateHash = () => {
-              hasher.setValidatedModuleHash(moduleName, type, candidateHash);
+              hasher.setValidatedModuleHash(moduleName, candidateHash);
             };
 
             if (!exists) {
@@ -1080,8 +1078,8 @@ class ArchaeInstaller {
   removeModule(moduleName, type, cb) {
     const {hasher, pather} = this;
 
-    hasher.unsetValidatedModuleHash(moduleName, type);
-    hasher.unsetModuleHash(moduleName, type, err => {
+    hasher.unsetValidatedModuleHash(moduleName);
+    hasher.unsetModuleHash(moduleName, err => {
       if (!err) {
         const modulePath = pather.getInstalledModulePath(moduleName);
         rimraf(modulePath, cb);
