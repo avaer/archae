@@ -257,7 +257,7 @@ class ArchaeServer {
 
             this.unmountModule(pluginName, this.pluginInstances, this.pluginApis, err => {
               if (!err) {
-                this.unloadModule(pluginName, this.plugins);
+                this.unloadPlugin(pluginName);
 
                 installer.removeModule(pluginName, 'plugins', err => {
                   if (!err) {
@@ -285,18 +285,6 @@ class ArchaeServer {
     return Promise.all(releasePluginPromises);
   }
 
-  getLoadedPlugins() {
-    return Object.keys(this.plugins).sort();
-  }
-
-  loadPlugin(plugin, cb) {
-    this.loadModule(plugin, 'plugins', 'server', this.plugins, cb);
-  }
-
-  mountPlugin(plugin, cb) {
-    this.mountModule(plugin, this.plugins, this.pluginInstances, this.pluginApis, cb);
-  }
-
   getModulePackageJsonFileName(module, type, packageJsonFileNameKey, cb) {
     const {dirname} = this;
 
@@ -315,16 +303,20 @@ class ArchaeServer {
     this.getModulePackageJsonFileName(plugin, 'plugins', 'client', cb);
   }
 
-  loadModule(module, type, packageJsonFileNameKey, exports, cb) {
-    this.getModulePackageJsonFileName(module, type, packageJsonFileNameKey, (err, fileName) => {
+  getLoadedPlugins() {
+    return Object.keys(this.plugins).sort();
+  }
+
+  loadPlugin(plugin, cb) {
+    this.getModulePackageJsonFileName(plugin, 'plugins', 'server', (err, fileName) => {
       if (!err) {
         if (fileName) {
           const {dirname} = this;
-          const moduleRequire = require(path.join(dirname, 'installed', type, 'node_modules', module, fileName));
+          const moduleRequire = require(path.join(dirname, 'installed', 'plugins', 'node_modules', plugin, fileName));
 
-          exports[module] = moduleRequire;
+          this.plugins[plugin] = moduleRequire;
         } else {
-          exports[module] = null;
+          this.plugins[plugin] = null;
         }
 
         cb();
@@ -334,8 +326,12 @@ class ArchaeServer {
     });
   }
 
-  unloadModule(module, exports) {
-    delete exports[module];
+  unloadPlugin(pluginName) {
+    delete this.plugins[pluginName];
+  }
+
+  mountPlugin(plugin, cb) {
+    this.mountModule(plugin, this.plugins, this.pluginInstances, this.pluginApis, cb);
   }
 
   mountModule(module, exports, exportInstances, exportApis, cb) {
