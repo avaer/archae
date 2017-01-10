@@ -165,7 +165,7 @@ class ArchaeServer {
         }
       };
 
-      pather.getModuleRealName(plugin, 'plugins', (err, pluginName) => {
+      pather.getModuleRealName(plugin, (err, pluginName) => {
         if (!err) {
           const {pluginsMutex} = this;
 
@@ -246,7 +246,7 @@ class ArchaeServer {
         }
       };
 
-      pather.getModuleRealName(plugin, 'plugins', (err, pluginName) => {
+      pather.getModuleRealName(plugin, (err, pluginName) => {
         this.pluginsMutex.lock(pluginName)
           .then(unlock => {
             const unlockCb = (cb => (err, result) => {
@@ -612,7 +612,7 @@ class ArchaePather {
     this.dirname = dirname;
   }
 
-  getModuleRealName(module, type, cb) {
+  getModuleRealName(module, cb) {
     if (path.isAbsolute(module)) {
       const packageJsonPath = this.getLocalModulePackageJsonPath(module);
 
@@ -640,9 +640,9 @@ class ArchaePather {
     }
   }
 
-  getInstalledModulePath(moduleName, type) {
+  getInstalledModulePath(moduleName) {
     const {dirname} = this;
-    return path.join(dirname, 'installed', type, 'node_modules', moduleName);
+    return path.join(dirname, 'installed', 'plugins', 'node_modules', moduleName);
   }
 
   getLocalModulePath(module) {
@@ -650,8 +650,8 @@ class ArchaePather {
     return path.join(dirname, module);
   }
 
-  getInstalledModulePackageJsonPath(moduleName, type) {
-    return path.join(this.getInstalledModulePath(moduleName, type), 'package.json');
+  getInstalledModulePackageJsonPath(moduleName) {
+    return path.join(this.getInstalledModulePath(moduleName), 'package.json');
   }
 
   getLocalModulePackageJsonPath(module) {
@@ -840,7 +840,7 @@ class ArchaeHasher {
   getModuleInstallStatus(module, type, cb) {
     const {pather, validatedModuleHashes} = this;
 
-    pather.getModuleRealName(module, type, (err, moduleName) => {
+    pather.getModuleRealName(module, (err, moduleName) => {
       if (!err) {
         const validatedHash = validatedModuleHashes[type][moduleName] || null;
 
@@ -897,7 +897,7 @@ class ArchaeInstaller {
           if (!err) {
             const j = JSON.parse(s);
             const moduleName = j.name;
-            const modulePath = pather.getInstalledModulePath(moduleName, type);
+            const modulePath = pather.getInstalledModulePath(moduleName);
 
             fs.exists(modulePath, exists => {
               if (exists) {
@@ -936,7 +936,7 @@ class ArchaeInstaller {
 
         _npmAdd(moduleName, type, err => {
           if (!err) {
-            const modulePackageJsonPath = pather.getInstalledModulePackageJsonPath(moduleName, type);
+            const modulePackageJsonPath = pather.getInstalledModulePackageJsonPath(moduleName);
 
             fs.readFile(modulePackageJsonPath, 'utf8', (err, s) => {
               if (!err) {
@@ -977,7 +977,7 @@ class ArchaeInstaller {
     };
     const _npmInstall = (moduleName, type, cb) => {
       this.queueNpm(cleanup => {
-        const modulePath = pather.getInstalledModulePath(moduleName, type);
+        const modulePath = pather.getInstalledModulePath(moduleName);
 
         const npmInstall = child_process.spawn(
           npmCommands.install[0],
@@ -1083,7 +1083,7 @@ class ArchaeInstaller {
     hasher.unsetValidatedModuleHash(moduleName, type);
     hasher.unsetModuleHash(moduleName, type, err => {
       if (!err) {
-        const modulePath = pather.getInstalledModulePath(moduleName, type);
+        const modulePath = pather.getInstalledModulePath(moduleName);
         rimraf(modulePath, cb);
       } else {
         cb(err);
