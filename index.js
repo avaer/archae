@@ -255,7 +255,7 @@ class ArchaeServer {
               unlock();
             })(cb);
 
-            this.unmountModule(pluginName, this.pluginInstances, this.pluginApis, err => {
+            this.unmountPlugin(pluginName, err => {
               if (!err) {
                 this.unloadPlugin(pluginName);
 
@@ -331,25 +331,21 @@ class ArchaeServer {
   }
 
   mountPlugin(plugin, cb) {
-    this.mountModule(plugin, this.plugins, this.pluginInstances, this.pluginApis, cb);
-  }
-
-  mountModule(module, exports, exportInstances, exportApis, cb) {
-    const moduleRequire = exports[module];
+    const moduleRequire = this.plugins[plugin];
 
     if (moduleRequire !== null) {
       Promise.resolve(_instantiate(moduleRequire, this))
-        .then(moduleInstance => {
-          exportInstances[module] = moduleInstance;
+        .then(pluginInstance => {
+          this.pluginInstances[plugin] = pluginInstance;
 
-          Promise.resolve(moduleInstance.mount())
-            .then(moduleApi => {
-              if (typeof moduleApi !== 'object' || moduleApi === null) {
-                moduleApi = {};
+          Promise.resolve(pluginInstance.mount())
+            .then(pluginApi => {
+              if (typeof pluginApi !== 'object' || pluginApi === null) {
+                pluginApi = {};
               }
-              moduleApi[nameSymbol] = module;
+              pluginApi[nameSymbol] = plugin;
 
-              exportApis[module] = moduleApi;
+              this.pluginApis[plugin] = pluginApi;
 
               cb();
             })
@@ -362,23 +358,23 @@ class ArchaeServer {
           cb(err);
         });
     } else {
-      exportInstances[module] = {};
-      exportApis[module] = {
-        [nameSymbol]: module,
+      this.pluginInstances[plugin] = {};
+      this.pluginApis[plugin] = {
+        [nameSymbol]: plugin,
       };
 
       cb();
     }
   }
 
-  unmountModule(module, exportInstances, exportApis, cb) {
-    const moduleInstance = exportInstances[module];
+  unmountPlugin(pluginName, cb) {
+    const pluginInstance = this.pluginInstances[pluginName];
 
-    if (moduleInstance !== undefined) {
-      Promise.resolve(typeof moduleInstance.unmount === 'function' ? moduleInstance.unmount : null)
+    if (pluginInstance !== undefined) {
+      Promise.resolve(typeof pluginInstance.unmount === 'function' ? pluginInstance.unmount : null)
         .then(() => {
-          delete exportInstances[module];
-          delete exportApis[module];
+          delete this.pluginInstances[pluginName];
+          delete this.pluginApis[pluginName];
 
           cb();
         })
@@ -400,8 +396,8 @@ class ArchaeServer {
     };
   }
 
-  getName(moduleApi) {
-    return moduleApi ? moduleApi[nameSymbol] : null;
+  getName(pluginApi) {
+    return pluginApi ? pluginApi[nameSymbol] : null;
   }
 
   mountApp() {
