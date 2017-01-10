@@ -132,7 +132,15 @@ class ArchaeClient {
                 const pluginApi = this.pluginApis[pluginName];
                 unlockCb(null, pluginApi);
               } else {
-                this.loadPlugin(pluginName, hasClient, err => {
+                const _loadPlugin = cb => {
+                  if (hasClient) {
+                    this.loadPlugin(pluginName, cb);
+                  } else {
+                    cb();
+                  }
+                };
+
+                _loadPlugin(err => {
                   if (!err) {
                     this.mountPlugin(pluginName, err => {
                       if (!err) {
@@ -275,8 +283,22 @@ class ArchaeClient {
     this.connect();
   }
 
-  loadPlugin(plugin, hasClient, cb) {
-    this.loadModule(plugin, 'plugins', plugin, this.plugins, hasClient, cb);
+  loadPlugin(plugin, cb) {
+    global.module = {};
+
+    _loadScript('/archae/plugins/' + plugin + '/' + plugin + '.js')
+      .then(() => {
+        console.log('plugin loaded:', plugin);
+
+        this.plugins[plugin] = global.module.exports;
+
+        global.module = {};
+
+        cb();
+      })
+      .catch(err => {
+        cb(err);
+      });
   }
 
   unloadPlugin(pluginName) {
@@ -333,28 +355,6 @@ class ArchaeClient {
       .catch(err => {
         cb(err);
       });
-  }
-
-  loadModule(module, type, target, exports, hasClient, cb) {
-    if (hasClient) {
-      global.module = {};
-
-      _loadScript('/archae/' + type + '/' + module + '/' + target + '.js')
-        .then(() => {
-          console.log('module loaded:', type + '/' + module);
-
-          exports[module] = global.module.exports;
-
-          global.module = {};
-
-          cb();
-        })
-        .catch(err => {
-          cb(err);
-        });
-    } else {
-      cb();
-    }
   }
 
   getCore() {
