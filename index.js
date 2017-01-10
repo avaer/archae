@@ -423,12 +423,11 @@ class ArchaeServer {
 
     // bundles
     const bundleCache = {};
-    app.get(/^\/archae\/(plugins)\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
+    app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
       const {params} = req;
-      const type = params[0];
-      const module = params[1];
-      const target = params[2];
-      const worker = params[3];
+      const module = params[0];
+      const target = params[1];
+      const worker = params[2];
 
       if (module === target) {
         const _respondOk = s => {
@@ -442,7 +441,7 @@ class ArchaeServer {
           _respondOk(entry);
         } else {
           rollup.rollup({
-            entry: path.join(dirname, 'installed', type, 'node_modules',  module, (!worker ? 'client' : 'worker') + '.js'),
+            entry: path.join(dirname, 'installed', 'plugins', 'node_modules',  module, (!worker ? 'client' : 'worker') + '.js'),
             plugins: [
               rollupPluginNodeResolve({
                 main: true,
