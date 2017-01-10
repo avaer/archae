@@ -99,8 +99,6 @@ class ArchaeClient {
     this.pluginInstances = {};
     this.pluginApis = {};
     this.pluginsMutex = new MultiMutex();
-
-    this.moduleDescriptors = new Map();
   }
 
   requestPlugin(plugin) {
@@ -188,110 +186,89 @@ class ArchaeClient {
     });
   }
 
-  requestWorker(moduleInstance, options = {}) {
-    return new Promise((accept, reject) => {
-      const moduleDescriptor = this.moduleDescriptors.get(moduleInstance);
+  requestWorker(moduleInstance, {count = 1} = {}) {
+    const responseListeners = new Map();
+    const onmessage = e => {
+      const {onmessage: fakeWorkerOnMessage} = fakeWorker;
 
-      if (moduleDescriptor) {
-        const {type, name} = moduleDescriptor;
-        const {count = 1} = options;
-
-        const responseListeners = new Map();
-        const onmessage = e => {
-          const {onmessage: fakeWorkerOnMessage} = fakeWorker;
-
-          if (fakeWorkerOnMessage) {
-            fakeWorkerOnMessage(e);
-          } else {
-            const {data} = e;
-            if (data && typeof data == 'object' && !Array.isArray(data)) {
-              const {id} = data;
-
-              if (typeof id === 'string') {
-                const responseListener = responseListeners.get(id);
-
-                if (responseListener) {
-                  const {error, result} = data;
-                  responseListener(error, result);
-
-                  responseListeners.delete(id);
-                }
-              }
-            }
-          }
-        };
-        const onerror = err => {
-          console.warn(err);
-        };
-        const workers = (() => {
-          const result = [];
-          for (let i = 0; i < count; i++) {
-            const worker = new Worker('/archae/worker.js');
-            worker.postMessage({
-              method: 'init',
-              args: [ type, name, name + '-worker' ],
-            });
-            worker.onmessage = onmessage;
-            worker.onerror = onerror;
-            result.push(worker);
-          }
-          return result;
-        })();
-
-        let workerIndex = 0;
-        const _getNextWorker = () => {
-          const worker = workers[workerIndex];
-          workerIndex = (workerIndex + 1) % count;
-          return worker;
-        }
-
-        const fakeWorker = {
-          postMessage(m, transfers) {
-            _getNextWorker().postMessage(m, transfers);
-          },
-          terminate() {
-            for (let i = 0; i < count; i++) {
-              const worker = workers[i];
-              worker.terminate();
-            }
-          },
-          onmessage: null,
-          request(method, args = [], transfers) {
-            return new Promise((accept, reject) => {
-              const id = _makeId();
-
-              _getNextWorker().postMessage({
-                method,
-                args,
-                id,
-              }, transfers);
-
-              responseListeners.set(id, (err, result) => {
-                if (!err) {
-                  accept(result);
-                } else {
-                  reject(err);
-                }
-              });
-            });
-          },
-        };
-        accept(fakeWorker);
+      if (fakeWorkerOnMessage) {
+        fakeWorkerOnMessage(e);
       } else {
-        const err = new Error('no such module');
-        reject(err);
-      }
+        const {data} = e;
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+          const {id} = data;
 
-      this.request('removePlugin', {
-        plugin,
-      }, err => {
-        if (!err) {
-          accept();
-        } else {
-          reject(err);
+          if (typeof id === 'string') {
+            const responseListener = responseListeners.get(id);
+
+            if (responseListener) {
+              const {error, result} = data;
+              responseListener(error, result);
+
+              responseListeners.delete(id);
+            }
+          }
         }
-      });
-    });
+      }
+    };
+    const onerror = err => {
+      console.warn(err);
+    };
+    const workers = (() => {
+      const result = [];
+      const moduleName = moduleInstance[nameSymbol];
+      for (let i = 0; i < count; i++) {
+        const worker = new Worker('/archae/worker.js');
+        worker.postMessage({
+          method: 'init',
+          args: [ 'plugins', moduleName, moduleName + '-worker' ],
+        });
+        worker.onmessage = onmessage;
+        worker.onerror = onerror;
+        result.push(worker);
+      }
+      return result;
+    })();
+
+    let workerIndex = 0;
+    const _getNextWorker = () => {
+      const worker = workers[workerIndex];
+      workerIndex = (workerIndex + 1) % count;
+      return worker;
+    }
+
+    const fakeWorker = {
+      postMessage(m, transfers) {
+        _getNextWorker().postMessage(m, transfers);
+      },
+      terminate() {
+        for (let i = 0; i < count; i++) {
+          const worker = workers[i];
+          worker.terminate();
+        }
+      },
+      onmessage: null,
+      request(method, args = [], transfers) {
+        return new Promise((accept, reject) => {
+          const id = _makeId();
+
+          _getNextWorker().postMessage({
+            method,
+            args,
+            id,
+          }, transfers);
+
+          responseListeners.set(id, (err, result) => {
+            if (!err) {
+              accept(result);
+            } else {
+              reject(err);
+            }
+          });
+        });
+      },
+    };
+    return Promise.resolve(fakeWorker);
   }
 
   bootstrap() {
@@ -312,11 +289,8 @@ class ArchaeClient {
     if (moduleRequire) {
       Promise.resolve(_instantiate(moduleRequire, this))
         .then(pluginInstance => {
+          pluginInstance[nameSymbol] = plugin;
           this.pluginInstances[plugin] = pluginInstance;
-          this.moduleDescriptors.set(pluginInstance, {
-            type: 'plugins',
-            name: plugin,
-          });
 
           Promise.resolve(pluginInstance.mount())
             .then(pluginApi => {
@@ -353,7 +327,6 @@ class ArchaeClient {
       .then(() => {
         delete this.pluginInstances[pluginName];
         delete this.pluginApis[pluginName];
-        this.moduleDescriptors.delete(pluginInstance);
 
         cb();
       })
