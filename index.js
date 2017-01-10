@@ -178,10 +178,10 @@ class ArchaeServer {
               })(cb);
           
               const _remove = cb => {
-                installer.removeModule(pluginName, 'plugins', cb);
+                installer.removeModule(pluginName, cb);
               };
               const _add = cb => {
-                installer.addModule(plugin, 'plugins', err => {
+                installer.addModule(plugin, err => {
                   if (!err) {
                     const existingPlugin = this.plugins[pluginName];
                     if (existingPlugin !== undefined) {
@@ -259,7 +259,7 @@ class ArchaeServer {
               if (!err) {
                 this.unloadPlugin(pluginName);
 
-                installer.removeModule(pluginName, 'plugins', err => {
+                installer.removeModule(pluginName, err => {
                   if (!err) {
                     unlockCb(null, {
                       pluginName,
@@ -884,10 +884,10 @@ class ArchaeInstaller {
     this.queue = [];
   }
 
-  addModule(module, type, cb) {
+  addModule(module, cb) {
     const {dirname, pather} = this;
 
-    const _installModule = (module, type, cb) => {
+    const _installModule = (module, cb) => {
       if (path.isAbsolute(module)) {
         const modulePackageJsonPath = pather.getLocalModulePackageJsonPath(module);
 
@@ -899,7 +899,7 @@ class ArchaeInstaller {
 
             fs.exists(modulePath, exists => {
               if (exists) {
-                _npmInstall(moduleName, type, err => {
+                _npmInstall(moduleName, err => {
                   if (!err) {
                     cb();
                   } else {
@@ -910,7 +910,7 @@ class ArchaeInstaller {
                 const localModulePath = path.join(dirname, module);
                 fs.copy(localModulePath, modulePath, err => {
                   if (!err) {
-                    _npmInstall(moduleName, type, err => {
+                    _npmInstall(moduleName, err => {
                       if (!err) {
                         cb();
                       } else {
@@ -932,7 +932,7 @@ class ArchaeInstaller {
       } else {
         const moduleName = module;
 
-        _npmAdd(moduleName, type, err => {
+        _npmAdd(moduleName, err => {
           if (!err) {
             const modulePackageJsonPath = pather.getInstalledModulePackageJsonPath(moduleName);
 
@@ -950,7 +950,7 @@ class ArchaeInstaller {
         });
       }
     };
-    const _npmAdd = (module, type, cb) => {
+    const _npmAdd = (module, cb) => {
       this.queueNpm(cleanup => {
         const npmAdd = child_process.spawn(
           npmCommands.add[0],
@@ -973,7 +973,7 @@ class ArchaeInstaller {
         });
       });
     };
-    const _npmInstall = (moduleName, type, cb) => {
+    const _npmInstall = (moduleName, cb) => {
       this.queueNpm(cleanup => {
         const modulePath = pather.getInstalledModulePath(moduleName);
 
@@ -999,7 +999,7 @@ class ArchaeInstaller {
       });
     };
 
-    mkdirp(path.join(dirname, 'installed', type), err => {
+    mkdirp(path.join(dirname, 'installed', 'plugins'), err => {
       if (!err) {
         const {hasher} = this;
 
@@ -1008,10 +1008,10 @@ class ArchaeInstaller {
             const {exists, outdated, moduleName, installedHash, candidateHash} = result;
 
             const _doAdd = cb => {
-              _installModule(module, type, cb);
+              _installModule(module, cb);
             };
             const _doRemove = cb => {
-              this.removeModule(moduleName, type, cb);
+              this.removeModule(moduleName, cb);
             };
             const _doUpdateHash = cb => {
               hasher.setModuleHash(moduleName, candidateHash, cb);
@@ -1075,7 +1075,7 @@ class ArchaeInstaller {
     });
   }
 
-  removeModule(moduleName, type, cb) {
+  removeModule(moduleName, cb) {
     const {hasher, pather} = this;
 
     hasher.unsetValidatedModuleHash(moduleName);
