@@ -411,7 +411,7 @@ class ArchaeServer {
   mountApp() {
     const {dirname, publicDirectory, server, app, wss} = this;
 
-    // ser public
+    // serve public
     if (publicDirectory) {
       app.use('/', express.static(path.join(dirname, publicDirectory)));
     }
