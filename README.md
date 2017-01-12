@@ -204,11 +204,11 @@ console.log('server-side Archae API:', a);
 </html>
 ```
 
-From here, you can use the `archae` API to `request` (load) and `release` (unload) plugins. The API is isomorphic and works the same both the frontend and backend. It's built around the `Promise` API:
+From here, you can use the `archae` API to `request` (load) and `release` (unload) plugins. The API is isomorphic and works the same both the frontend and backend. It's built around the `Promise` API. Plugins also may also `request` each other and _export_ APIs to communicate with each other. This is all documented below.
 
 ## Archae constructor
 
-To use `archae`, you need construct and instance of it on your server. Here's an example with all of the arguments and their defaults:
+To use `archae`, you first need construct and instance of it on your server. Here's an example with all of the arguments and their defaults:
 
 #### index.js
 ```js
@@ -270,9 +270,9 @@ The `pluginPath` is a `String` that can be either:
 - an _absolute path_ that starts with `/`
 - the name of an `npm` module
 
-In either case, the return value of the function is a `Promise` that will eventually resolve to the plugin's returned API, or reject with an error describing how the loading process failed. Archae will figure out how to load the plugin in all environments and you won't get the callback until it's done.
+In either case, the return value of the function is a `Promise` that will eventually resolve to the plugin's _exported API_, or reject with an error describing how the loading process failed. Archae will figure out how to load the plugin in all environments and you won't get the callback until it's done.
 
-// XXX describe the plugin return API
+For details of how your plugin can _export an API_ from its `mount` function, see below.
 
 #### releasePlugin(`pluginPath`) : `Promise()`
 
@@ -297,6 +297,56 @@ Available only on the server and `"server"` plugin scripts, this gives you acces
 In all cases you may use these APIs however you like, both on the server and in your plugins, with one restriction: a plugin using these APIs must clean up whatever it does in `mount` in its `unmount`.
 
 For example, if your plugin is going to add a route to the `app` in `mount`, it must completely remove it in `unmount`. If you don't do this, your plugins will not mount/unmount cleanly and memory leaks and crashes are likely to result.
+
+## Plugin exported APIs
+
+Archae plugins may return an API to _export_ from their `mount` function. This lets other plugins communicate with that plugin when they `request` it.
+
+For example, you might have a `database` plugin that _exports_ `get()` and `set()` so that other plugins can use the database. That might look something like this:
+
+#### database/client.js
+```js
+export default class Database {
+  mount() {
+    return new Promise((accept, reject) => {
+      const databaseInstance = {}; // load the database instance somehow...
+      accept(databaseInstance);
+    })
+      .then(databaseInstance => {
+        const databaseApi = {
+          get(key) {
+            return new Promise((accept, reject) => {
+              // get the value from databaseApi and accept() it...
+            });
+          },
+          set(key, value) {
+            return new Promise((accept, reject) => {
+              // set the value from databaseApi and accept() when done...
+            });
+          },
+        };
+      });
+  }
+
+  unmount() {}
+}
+```
+
+#### some-other-plugin/client.js
+```js
+module.exports = archae => {
+  mount() {
+    return archae.requestPlugin('database')
+      .then(database => {
+        // call database.get() or database.set() here to use the database...
+      });
+  }
+
+  unmount() {}
+};
+```
+
+There is no restriction on what kind of value you may export from a plugin, but it's recommended to stick to plain `Object`s, and to document the API in your plugin's `README.md`.
 
 ## Contact
 
