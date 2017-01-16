@@ -286,7 +286,7 @@ class ArchaeClient {
   loadPlugin(plugin, cb) {
     global.module = {};
 
-    _loadScript('/archae/plugins/' + plugin + '/' + plugin + '.js')
+    _loadScript('/archae/plugins/' + plugin + '/' + plugin + (!env.webworker ? '' : '-worker') + '.js')
       .then(() => {
         console.log('plugin loaded:', plugin);
 
