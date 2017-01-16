@@ -43,7 +43,7 @@ if (!npmCommands) {
 const nameSymbol = Symbol();
 
 class ArchaeServer {
-  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, server, app, wss} = {}) {
+  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, server, app, wss, staticSite} = {}) {
     dirname = dirname || process.cwd();
     this.dirname = dirname;
 
@@ -69,6 +69,9 @@ class ArchaeServer {
       noServer: true,
     });
     this.wss = wss;
+
+    staticSite = staticSite || false;
+    this.staticSite = staticSite;
 
     const pather = new ArchaePather(dirname);
     this.pather = pather;
@@ -401,185 +404,187 @@ class ArchaeServer {
   }
 
   mountApp() {
-    const {dirname, publicDirectory, server, app, wss} = this;
+    const {dirname, publicDirectory, server, app, wss, staticSite} = this;
 
-    // serve public
+    // user public
     if (publicDirectory) {
       app.use('/', express.static(path.join(dirname, publicDirectory)));
     }
 
-    // public
-    app.use('/', express.static(path.join(__dirname, 'public')));
+    if (!staticSite) {
+      // archae public
+      app.use('/', express.static(path.join(__dirname, 'public')));
 
-    // lists
-    app.use('/archae/plugins.json', (req, res, next) => {
-      const plugins = this.getLoadedPlugins();
+      // archae lists
+      app.use('/archae/plugins.json', (req, res, next) => {
+        const plugins = this.getLoadedPlugins();
 
-      res.type('application/json');
-      res.send(JSON.stringify({
-        plugins,
-      }, null, 2));
-    });
+        res.type('application/json');
+        res.send(JSON.stringify({
+          plugins,
+        }, null, 2));
+      });
 
-    // bundles
-    const bundleCache = {};
-    app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
-      const {params} = req;
-      const module = params[0];
-      const target = params[1];
-      const worker = params[2];
+      // archae bundles
+      const bundleCache = {};
+      app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
+        const {params} = req;
+        const module = params[0];
+        const target = params[1];
+        const worker = params[2];
 
-      if (module === target) {
-        const _respondOk = s => {
-          res.type('application/javascript');
-          res.send(s);
-        };
+        if (module === target) {
+          const _respondOk = s => {
+            res.type('application/javascript');
+            res.send(s);
+          };
 
-        const key = module + (!worker ? '-client' : '-worker');
-        const entry = bundleCache[key];
-        if (entry !== undefined) {
-          _respondOk(entry);
-        } else {
-          rollup.rollup({
-            entry: path.join(dirname, 'installed', 'plugins', 'node_modules',  module, (!worker ? 'client' : 'worker') + '.js'),
-            plugins: [
-              rollupPluginNodeResolve({
-                main: true,
-                preferBuiltins: false,
-              }),
-              rollupPluginCommonJs(),
-              rollupPluginJson(),
-            ],
-          }).then(bundle => {
-            const result = bundle.generate({
-              moduleName: module,
-              format: 'cjs',
-              useStrict: false,
+          const key = module + (!worker ? '-client' : '-worker');
+          const entry = bundleCache[key];
+          if (entry !== undefined) {
+            _respondOk(entry);
+          } else {
+            rollup.rollup({
+              entry: path.join(dirname, 'installed', 'plugins', 'node_modules',  module, (!worker ? 'client' : 'worker') + '.js'),
+              plugins: [
+                rollupPluginNodeResolve({
+                  main: true,
+                  preferBuiltins: false,
+                }),
+                rollupPluginCommonJs(),
+                rollupPluginJson(),
+              ],
+            }).then(bundle => {
+              const result = bundle.generate({
+                moduleName: module,
+                format: 'cjs',
+                useStrict: false,
+              });
+              const {code} = result;
+              const wrappedCode = '(function() {\n' + code + '\n})();\n';
+
+              bundleCache[key] = wrappedCode;
+
+              _respondOk(wrappedCode);
+            })
+            .catch(err => {
+              res.status(500);
+              res.send(err.stack);
             });
-            const {code} = result;
-            const wrappedCode = '(function() {\n' + code + '\n})();\n';
+          }
+        } else {
+          next();
+        }
+      });
 
-            bundleCache[key] = wrappedCode;
+      const upgradeHandlers = [];
+      server.addUpgradeHandler = upgradeHandler => {
+        upgradeHandlers.push(upgradeHandler);
+      };
+      server.removeUpgradeHandler = upgradeHandler => {
+        upgradeHandlers.splice(upgradeHandlers.indexOf(upgradeHandler), 1);
+      };
+      server.on('upgrade', (req, socket, head) => {
+        let handled = false;
+        for (let i = 0; i < upgradeHandlers.length; i++) {
+          const upgradeHandler = upgradeHandlers[i];
+          if (upgradeHandler(req, socket, head) === false) {
+            handled = true;
+            break;
+          }
+        }
 
-            _respondOk(wrappedCode);
-          })
-          .catch(err => {
-            res.status(500);
-            res.send(err.stack);
+        if (!handled) {
+          wss.handleUpgrade(req, socket, head, c => {
+            wss.emit('connection', c);
           });
         }
-      } else {
-        next();
-      }
-    });
+      });
+
+      wss.on('connection', c => {
+        const {url} = c.upgradeReq;
+        if (url === '/archae/ws') {
+          console.log('connection open');
+
+          this.connections.push(c);
+
+          c.on('message', s => {
+            const m = JSON.parse(s);
+
+            const cb = err => {
+              console.warn(err);
+            };
+
+            if (typeof m === 'object' && m && typeof m.method === 'string' && ('args' in m) && typeof m.id === 'string') {
+              const cb = (err = null, result = null) => {
+                if (c.readyState === ws.OPEN) {
+                  const e = {
+                    id: m.id,
+                    error: err ? (err.stack || err) : null,
+                    result: result,
+                  };
+                  const es = JSON.stringify(e);
+                  c.send(es);
+                }
+              };
+
+              const {method, args} = m;
+              if (method === 'requestPlugin') {
+                const {plugin} = args;
+
+                this.requestPlugin(plugin)
+                  .then(pluginApi => {
+                    const pluginName = this.getName(pluginApi);
+
+                    this.getPluginClient(pluginName, (err, clientFileName) => {
+                      if (!err) {
+                        const hasClient = Boolean(clientFileName);
+                        cb(null, {
+                          pluginName,
+                          hasClient,
+                        });
+                      } else {
+                        cb(err);
+                      }
+                    });
+                  })
+                  .catch(err => {
+                    cb(err);
+                  });
+              } else if (method === 'releasePlugin') {
+                const {plugin} = args;
+
+                this.releasePlugin(plugin)
+                  .then(result => {
+                    const {pluginName} = result;
+
+                    cb(null, {
+                      pluginName,
+                    });
+                  })
+                  .catch(err => {
+                    cb(err);
+                  });
+              } else {
+                const err = new Error('invalid message method: ' + JSON.stringify(method));
+                cb(err);
+              }
+            } else {
+              const err = new Error('invalid message');
+              cb(err);
+            }
+          });
+          c.on('close', () => {
+            console.log('connection close');
+
+            this.connections.splice(this.connections.indexOf(c), 1);
+          });
+        }
+      });
+    }
 
     // mount on server
     server.on('request', app);
-
-    const upgradeHandlers = [];
-    server.addUpgradeHandler = upgradeHandler => {
-      upgradeHandlers.push(upgradeHandler);
-    };
-    server.removeUpgradeHandler = upgradeHandler => {
-      upgradeHandlers.splice(upgradeHandlers.indexOf(upgradeHandler), 1);
-    };
-    server.on('upgrade', (req, socket, head) => {
-      let handled = false;
-      for (let i = 0; i < upgradeHandlers.length; i++) {
-        const upgradeHandler = upgradeHandlers[i];
-        if (upgradeHandler(req, socket, head) === false) {
-          handled = true;
-          break;
-        }
-      }
-
-      if (!handled) {
-        wss.handleUpgrade(req, socket, head, c => {
-          wss.emit('connection', c);
-        });
-      }
-    });
-
-    wss.on('connection', c => {
-      const {url} = c.upgradeReq;
-      if (url === '/archae/ws') {
-        console.log('connection open');
-
-        this.connections.push(c);
-
-        c.on('message', s => {
-          const m = JSON.parse(s);
-
-          const cb = err => {
-            console.warn(err);
-          };
-
-          if (typeof m === 'object' && m && typeof m.method === 'string' && ('args' in m) && typeof m.id === 'string') {
-            const cb = (err = null, result = null) => {
-              if (c.readyState === ws.OPEN) {
-                const e = {
-                  id: m.id,
-                  error: err ? (err.stack || err) : null,
-                  result: result,
-                };
-                const es = JSON.stringify(e);
-                c.send(es);
-              }
-            };
-
-            const {method, args} = m;
-            if (method === 'requestPlugin') {
-              const {plugin} = args;
-
-              this.requestPlugin(plugin)
-                .then(pluginApi => {
-                  const pluginName = this.getName(pluginApi);
-
-                  this.getPluginClient(pluginName, (err, clientFileName) => {
-                    if (!err) {
-                      const hasClient = Boolean(clientFileName);
-                      cb(null, {
-                        pluginName,
-                        hasClient,
-                      });
-                    } else {
-                      cb(err);
-                    }
-                  });
-                })
-                .catch(err => {
-                  cb(err);
-                });
-            } else if (method === 'releasePlugin') {
-              const {plugin} = args;
-
-              this.releasePlugin(plugin)
-                .then(result => {
-                  const {pluginName} = result;
-
-                  cb(null, {
-                    pluginName,
-                  });
-                })
-                .catch(err => {
-                  cb(err);
-                });
-            } else {
-              const err = new Error('invalid message method: ' + JSON.stringify(method));
-              cb(err);
-            }
-          } else {
-            const err = new Error('invalid message');
-            cb(err);
-          }
-        });
-        c.on('close', () => {
-          console.log('connection close');
-
-          this.connections.splice(this.connections.indexOf(c), 1);
-        });
-      }
-    });
   }
 
   listen(cb) {
