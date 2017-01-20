@@ -29,8 +29,8 @@ const npmCommands = (() => {
 
   if (_hasCommand('npm')) {
     return {
-      add: ['npm', 'install'],
       install: ['npm', 'install'],
+      // cache: ['npm', 'cache'],
     };
   } else {
     return null;
@@ -156,7 +156,12 @@ class ArchaeServer {
     });
   }
 
-  requestPlugin(plugin, opts = {}) {
+  requestPlugin(plugin) {
+    return this.requestPlugins([plugin])
+      .then(([plugin]) => Promise.resolve(plugin));
+  }
+
+  requestPlugins(plugins) {
     return new Promise((accept, reject) => {
       const {pather, installer} = this;
 
@@ -168,73 +173,80 @@ class ArchaeServer {
         }
       };
 
-      pather.getModuleRealName(plugin, (err, pluginName) => {
-        if (!err) {
-          const {pluginsMutex} = this;
+      const _getModuleRealNames = plugins => Promise.all(plugins.map(plugin => new Promise((accept, reject) => {
+        pather.getModuleRealName(plugin, (err, pluginName) => {
+          if (!err) {
+            accept(pluginName);
+          } else {
+            reject(err);
+          }
+        });
+      })));
+      const _lockPlugins = pluginNames => Promise.all(pluginNames.map(pluginName => this.pluginsMutex.lock(pluginName)));
+      const _bootPlugins = (pluginNames, unlocks) => Promise.all(pluginNames.map((pluginName, i) => new Promise((accept, reject) => {
+        const cb = (err, result) => {
+          if (!err) {
+            accept(result);
+          } else {
+            reject(err);
+          }
+        };
+        const unlockCb = (cb => (err, result) => {
+          cb(err, result);
 
-          pluginsMutex.lock(pluginName)
-            .then(unlock => {
-              const unlockCb = (cb => (err, result) => {
-                cb(err, result);
+          const unlock = unlocks[i];
+          unlock();
+        })(cb);
 
-                unlock();
-              })(cb);
-          
-              const _remove = cb => {
-                installer.removeModule(pluginName, cb);
-              };
-              const _add = cb => {
-                installer.addModule(plugin, err => {
-                  if (!err) {
-                    const existingPlugin = this.plugins[pluginName];
-                    if (existingPlugin !== undefined) {
-                      const pluginApi = this.pluginApis[pluginName];
-                      cb(null, pluginApi);
-                    } else {
-                      this.loadPlugin(pluginName, err => {
-                        if (!err) {
-                          this.mountPlugin(pluginName, err => {
-                            if (!err) {
-                              const pluginApi = this.pluginApis[pluginName];
-                              cb(null, pluginApi);
-                            } else {
-                              cb(err);
-                            }
-                          });
-                        } else {
-                          cb(err);
-                        }
-                      });
-                    }
-                  } else {
-                    cb(err);
-                  }
-                });
-              };
+        const existingPlugin = this.plugins[pluginName];
 
-              if (opts.force) {
-                _remove(err => {
-                  if (!err) {
-                    _add(unlockCb);
-                  } else {
-                    unlockCb(err);
-                  }
-                });
-              } else {
-                _add(unlockCb);
-              }
-            })
-            .catch(cb);
+        if (existingPlugin !== undefined) {
+          unlockCb(null, this.pluginApis[pluginName]);
         } else {
-          cb(err);
+          this.loadPlugin(pluginName, err => {
+            if (!err) {
+              this.mountPlugin(pluginName, err => {
+                if (!err) {
+                  unlockCb(null, this.pluginApis[pluginName]);
+                } else {
+                  unlockCb(err);
+                }
+              });
+            } else {
+              unlockCb(err);
+            }
+          });
         }
-      });
-    });
-  }
+      })));
 
-  requestPlugins(plugins, opts = {}) {
-    const requestPluginPromises = plugins.map(plugin => this.requestPlugin(plugin, opts));
-    return Promise.all(requestPluginPromises);
+      _getModuleRealNames(plugins)
+        .then(pluginNames => {
+          _lockPlugins(pluginNames)
+            .then(unlocks => {
+              installer.addModules(plugins, err => {
+                if (!err) {
+                  _bootPlugins(pluginNames, unlocks)
+                    .then(pluginApis => {
+                      cb(null, pluginApis);
+                    })
+                    .catch(err => {
+                      cb(err);
+                    });
+                } else {
+                  cb(err);
+
+                  for (let i = 0; i < unlocks.length; i++) {
+                    const unlock = unlocks[i];
+                    unlock();
+                  }
+                }
+              });
+            });
+        })
+        .catch(err => {
+          cb(err);
+        });
+    });
   }
 
   releasePlugin(plugin) {
@@ -283,8 +295,8 @@ class ArchaeServer {
     });
   }
 
-  releasePlugins(plugins, opts = {}) {
-    const releasePluginPromises = plugins.map(plugin => this.releasePlugin(plugin, opts));
+  releasePlugins(plugins) {
+    const releasePluginPromises = plugins.map(plugin => this.releasePlugin(plugin));
     return Promise.all(releasePluginPromises);
   }
 
@@ -551,16 +563,48 @@ class ArchaeServer {
                   .catch(err => {
                     cb(err);
                   });
+             } else if (method === 'requestPlugins') {
+                const {plugins} = args;
+
+                this.requestPlugins(plugins)
+                  .then(pluginApis => Promise.all(pluginApis.map(pluginApi => new Promise((accept, reject) => {
+                    const pluginName = this.getName(pluginApi);
+
+                    this.getPluginClient(pluginName, (err, clientFileName) => {
+                      if (!err) {
+                        const hasClient = Boolean(clientFileName);
+
+                        accept({
+                          pluginName,
+                          hasClient,
+                        });
+                      } else {
+                        reject(err);
+                      }
+                    });
+                  }))))
+                  .then(pluginSpecs => {
+                    cb(null, pluginSpecs);
+                  })
+                  .catch(err => {
+                    cb(err);
+                  });
               } else if (method === 'releasePlugin') {
                 const {plugin} = args;
 
                 this.releasePlugin(plugin)
                   .then(result => {
-                    const {pluginName} = result;
+                    cb(null, result);
+                  })
+                  .catch(err => {
+                    cb(err);
+                  });
+              } else if (method === 'releasePlugins') {
+                const {plugins} = args;
 
-                    cb(null, {
-                      pluginName,
-                    });
+                this.releasePlugins(plugins)
+                  .then(result => {
+                    cb(null, result);
                   })
                   .catch(err => {
                     cb(err);
@@ -866,7 +910,7 @@ class ArchaeHasher {
               const exists = installedHash !== null;
               const outdated = !exists || installedHash !== candidateHash;
 
-              cb(null, {exists, outdated, moduleName, installedHash, candidateHash});
+              cb(null, {module, moduleName, exists, outdated, installedHash, candidateHash});
             })
             .catch(err => {
               cb(err);
@@ -889,191 +933,172 @@ class ArchaeInstaller {
     this.queue = [];
   }
 
-  addModule(module, cb) {
+  addModules(modules, cb) {
     const {dirname, pather} = this;
 
-    const _installModule = (module, cb) => {
-      if (path.isAbsolute(module)) {
-        const modulePackageJsonPath = pather.getLocalModulePackageJsonPath(module);
-
-        fs.readFile(modulePackageJsonPath, 'utf8', (err, s) => {
-          if (!err) {
-            const j = JSON.parse(s);
-            const moduleName = j.name;
-            const modulePath = pather.getInstalledModulePath(moduleName);
-
-            fs.exists(modulePath, exists => {
-              if (exists) {
-                _npmInstall(moduleName, err => {
-                  if (!err) {
-                    cb();
-                  } else {
-                    cb(err);
-                  }
-                });
-              } else {
-                const localModulePath = path.join(dirname, module);
-                fs.copy(localModulePath, modulePath, err => {
-                  if (!err) {
-                    _npmInstall(moduleName, err => {
-                      if (!err) {
-                        cb();
-                      } else {
-                        cb(err);
-                      }
-                    });
-                  } else {
-                    cb(err);
-                  }
-                });
-              }
-            });
-          } else {
-            cb(err);
-
-            cleanup();
-          }
-        });  
-      } else {
-        const moduleName = module;
-
-        _npmAdd(moduleName, err => {
-          if (!err) {
-            const modulePackageJsonPath = pather.getInstalledModulePackageJsonPath(moduleName);
-
-            fs.readFile(modulePackageJsonPath, 'utf8', (err, s) => {
-              if (!err) {
-                const j = JSON.parse(s);
-                cb(null, j);
-              } else {
-                cb(err);
-              }
-            });
-          } else {
-            cb(err);
-          }
-        });
-      }
-    };
-    const _npmAdd = (module, cb) => {
-      this.queueNpm(cleanup => {
-        const npmAdd = child_process.spawn(
-          npmCommands.add[0],
-          npmCommands.add.slice(1).concat([ module ]),
-          {
-            cwd: path.join(dirname, 'installed', 'plugins'),
-          }
-        );
-        npmAdd.stdout.pipe(process.stdout);
-        npmAdd.stderr.pipe(process.stderr);
-        npmAdd.on('exit', code => {
-          if (code === 0) {
-            cb();
-          } else {
-            const err = new Error('npm add error: ' + code);
-            cb(err);
-          }
-
-          cleanup();
+    const _npmInstall = (moduleSpecs, cb) => {
+      const _queue = () => new Promise((accept, reject) => {
+        this.queueNpm(unlock => {
+          accept(unlock);
         });
       });
-    };
-    const _npmInstall = (moduleName, cb) => {
-      this.queueNpm(cleanup => {
-        const modulePath = pather.getInstalledModulePath(moduleName);
-
+      /* const _cacheClean = moduleSpecs => Promise.all(moduleSpecs.map(moduleSpec => new Promise((accept, reject) => {
+        const {moduleName} = moduleSpec;
+        const npmCacheClean = child_process.spawn(
+          npmCommands.cache[0],
+          npmCommands.cache.slice(1).concat(['clean', moduleName])
+        );
+        npmCacheClean.on('exit', code => {
+          if (code === 0) {
+            accept();
+          } else {
+            reject(new Error('npm cache clean error: ' + code));
+          }
+        });
+        npmCacheClean.on('error', err => {
+          reject(err);
+        });
+      }))); */
+      const _install = moduleSpecs => new Promise((accept, reject) => {
+        const modulePaths = moduleSpecs.map(moduleSpec => {
+          const {module} = moduleSpec;
+          if (path.isAbsolute(module)) {
+            return path.join(dirname, module);
+          } else {
+            return module;
+          }
+        });
         const npmInstall = child_process.spawn(
           npmCommands.install[0],
-          npmCommands.install.slice(1),
+          npmCommands.install.slice(1).concat(modulePaths),
           {
-            cwd: modulePath,
+            cwd: path.join(dirname, 'installed', 'plugins'),
           }
         );
         npmInstall.stdout.pipe(process.stdout);
         npmInstall.stderr.pipe(process.stderr);
         npmInstall.on('exit', code => {
           if (code === 0) {
-            cb();
+            accept();
           } else {
-            const err = new Error('npm install error: ' + code);
-            cb(err);
+            reject(new Error('npm install error: ' + code));
           }
-
-          cleanup();
+        });
+        npmInstall.on('error', err => {
+          reject(err);
         });
       });
+
+      _queue()
+        .then(unlock => {
+          const unlockCb = (cb => (err, result) => {
+            cb(err, result);
+
+            unlock();
+          })(cb);
+
+          /* _cacheClean(moduleSpecs)
+            .then(() => _install(moduleSpecs)) */
+          _install(moduleSpecs)
+            .then(() => {
+              unlockCb();
+            })
+            .catch(err => {
+              unlockCb(err);
+            });
+        })
+        .catch(err => {
+          cb(err);
+        });
     };
 
-    mkdirp(path.join(dirname, 'installed', 'plugins'), err => {
+    mkdirp(path.join(dirname, 'installed', 'plugins', 'node_modules'), err => {
       if (!err) {
-        const {hasher} = this;
-
-        hasher.getModuleInstallStatus(module, (err, result) => {
-          if (!err) {
-            const {exists, outdated, moduleName, installedHash, candidateHash} = result;
-
-            const _doAdd = cb => {
-              _installModule(module, cb);
-            };
-            const _doRemove = cb => {
-              this.removeModule(moduleName, cb);
-            };
-            const _doUpdateHash = cb => {
-              hasher.setModuleHash(moduleName, candidateHash, cb);
-            };
-            const _doValidateHash = () => {
-              hasher.setValidatedModuleHash(moduleName, candidateHash);
-            };
-
-            if (!exists) {
-              _doAdd(err => {
-                if (!err) {
-                  _doUpdateHash(err => {
-                    if (!err) {
-                      _doValidateHash();
-
-                      cb();
-                    } else {
-                      cb(err);
-                    }
-                  });
-                } else {
-                  cb(err);
-                }
-              });
+        const _requestModuleInstallStatuses = modules => Promise.all(modules.map(module => new Promise((accept, reject) => {
+          this.hasher.getModuleInstallStatus(module, (err, result) => {
+            if (!err) {
+              accept(result);
             } else {
-              if (outdated) {
-                _doRemove(err => {
-                  if (!err) {
-                    _doAdd(err => {
-                      if (!err) {
-                        _doUpdateHash(err => {
-                          if (!err) {
-                            _doValidateHash();
-
-                            cb();
-                          } else {
-                            cb(err);
-                          }
-                        });
-                      } else {
-                        cb(err);
-                      }
-                    });
-                  } else {
-                    cb(err);
-                  }
-                });
-              } else {
-                _doValidateHash();
-
-                cb();
-              }
+              reject(err);
             }
+          });
+        })));
+        const _doRemoves = moduleStatuses => Promise.all(moduleStatuses.map(moduleStatus => new Promise((accept, reject) => {
+          const {exists, outdated} = moduleStatus;
+
+          if (exists && outdated) {
+            const {moduleName} = moduleStatus;
+
+            this.removeModule(moduleName, err => {
+              if (!err) {
+                accept();
+              } else {
+                reject(err);
+              }
+            });
           } else {
-            cb(err);
+            accept();
+          }
+        })));
+        const _doAdds = moduleStatuses => new Promise((accept, reject) => {
+          const moduleStatusesToInstall = moduleStatuses.filter(moduleStatus => {
+            const {exists, outdated} = moduleStatus;
+            return !exists || outdated;
+          });
+
+          if (moduleStatusesToInstall.length > 0) {
+            _npmInstall(moduleStatusesToInstall, err => {
+              if (!err) {
+                accept();
+              } else {
+                reject(err);
+              }
+            });
+          } else {
+            accept();
           }
         });
+        const _doUpdateHashes = moduleStatuses => Promise.all(moduleStatuses.map(moduleStatus => new Promise((accept, reject) => {
+          const {exists, outdated} = moduleStatus;
+
+          if (!exists || outdated) {
+            const {moduleName, candidateHash} = moduleStatus;
+
+            this.hasher.setModuleHash(moduleName, candidateHash, err => {
+              if (!err) {
+                accept();
+              } else {
+                reject(err);
+              }
+            });
+          } else {
+            accept();
+          }
+        })));
+        const _doValidateHashes = moduleStatuses => new Promise((accept, reject) => {
+          for (let i = 0; i < moduleStatuses.length; i++) {
+            const moduleStatus = moduleStatuses[i];
+            const {moduleName, candidateHash} = moduleStatus;
+
+            this.hasher.setValidatedModuleHash(moduleName, candidateHash);
+          }
+
+          accept();
+        });
+
+        _requestModuleInstallStatuses(modules)
+          .then(moduleStatuses =>
+            _doRemoves(moduleStatuses)
+              .then(() => _doAdds(moduleStatuses))
+              .then(() => _doUpdateHashes(moduleStatuses))
+              .then(() => _doValidateHashes(moduleStatuses))
+              .then(() => {
+                cb();
+              })
+          )
+          .catch(err => {
+            cb(err);
+          });
       } else {
         cb(err);
       }

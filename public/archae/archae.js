@@ -80,7 +80,7 @@ class Mutex {
   unlock() {
     this.locked = false;
 
-    const next = this.queue.pop();
+    const next = this.queue.shift();
     if (next) {
       next();
     } else {
@@ -98,10 +98,16 @@ class ArchaeClient {
     this.plugins = {};
     this.pluginInstances = {};
     this.pluginApis = {};
-    this.pluginsMutex = new MultiMutex();
+    this.loadsMutex = new MultiMutex();
+    this.mountsMutex = new MultiMutex();
   }
 
   requestPlugin(plugin) {
+    return this.requestPlugins([plugin])
+      .then(([plugin]) => Promise.resolve(plugin));
+  }
+
+  requestPlugins(plugins) {
     return new Promise((accept, reject) => {
       const cb = (err, result) => {
         if (!err) {
@@ -111,62 +117,79 @@ class ArchaeClient {
         }
       };
 
-      this.request('requestPlugin', {
-        plugin,
-      }, (err, result) => {
-        if (!err) {
-          const {pluginName, hasClient} = result;
-
-          const {pluginsMutex} = this;
-          pluginsMutex.lock(pluginName)
-            .then(unlock => {
-              const unlockCb = (err, result) => {
-                cb(err, result);
-
-                unlock();
-              };
-
-              const existingPlugin = this.plugins[pluginName];
-
-              if (existingPlugin !== undefined) {
-                const pluginApi = this.pluginApis[pluginName];
-                unlockCb(null, pluginApi);
-              } else {
-                const _loadPlugin = cb => {
-                  if (hasClient) {
-                    this.loadPlugin(pluginName, cb);
-                  } else {
-                    cb();
-                  }
-                };
-
-                _loadPlugin(err => {
-                  if (!err) {
-                    this.mountPlugin(pluginName, err => {
-                      if (!err) {
-                        const pluginApi = this.pluginApis[pluginName];
-                        unlockCb(null, pluginApi);
-                      } else {
-                        unlockCb(err);
-                      }
-                    });
-                  } else {
-                    unlockCb(err);
-                  }
-                });
-              }
-          })
-          .catch(cb);
-        } else {
-          cb(err);
-        }
+      const _requestPluginsRemote = plugins => new Promise((accept, reject) => {
+        this.request('requestPlugins', {
+          plugins,
+        }, (err, pluginSpecs) => {
+          if (!err) {
+            accept(pluginSpecs);
+          } else {
+            reject(err);
+          }
+        });
       });
-    });
-  }
+      const _bootPlugins = pluginSpecs => Promise.all(pluginSpecs.map(pluginSpec => new Promise((accept, reject) => {
+        const cb = (err, result) => {
+          if (!err) {
+            accept(result);
+          } else {
+            reject(err);
+          }
+        };
 
-  requestPlugins(plugins) {
-    const requestPluginPromises = plugins.map(plugin => this.requestPlugin(plugin));
-    return Promise.all(requestPluginPromises);
+        const {pluginName, hasClient} = pluginSpec;
+
+        const _loadPlugin = cb => {
+          if (hasClient) {
+            this.loadsMutex.lock(pluginName)
+              .then(unlock => {
+                this.loadPlugin(pluginName, err => {
+                  cb(err);
+
+                  unlock();
+                });
+              })
+              .catch(err => {
+                cb(err);
+              });
+          } else {
+            cb();
+          }
+        };
+
+        _loadPlugin(err => {
+          if (!err) {
+            this.mountsMutex.lock(pluginName)
+              .then(unlock => {
+                this.mountPlugin(pluginName, err => {
+                  if (!err) {
+                    cb(null, this.pluginApis[pluginName]);
+                  } else {
+                    cb(err);
+                  }
+
+                  unlock();
+                });
+              })
+              .catch(err => {
+                cb(err);
+              });
+          } else {
+            cb(err);
+          }
+        });
+      })));
+
+      _requestPluginsRemote(plugins)
+        .then(pluginSpecs => _bootPlugins(pluginSpecs)
+          .then(pluginApis => {
+            cb(null, pluginApis);
+          })
+        )
+        .catch(err => {
+          cb(err);
+        });
+    });
   }
 
   releasePlugin(plugin) {
@@ -192,6 +215,11 @@ class ArchaeClient {
         }
       });
     });
+  }
+
+  releasePlugins(plugins) {
+    const releasePluginPromises = plugins.map(plugin => this.releasePlugin(plugin));
+    return Promise.all(releasePluginPromises);
   }
 
   requestWorker(moduleInstance, {count = 1} = {}) {
@@ -284,21 +312,27 @@ class ArchaeClient {
   }
 
   loadPlugin(plugin, cb) {
-    global.module = {};
+    const existingPlugin = this.plugins[plugin];
 
-    _loadScript('/archae/plugins/' + plugin + '/' + plugin + (!env.webworker ? '' : '-worker') + '.js')
-      .then(() => {
-        console.log('plugin loaded:', plugin);
+    if (existingPlugin) {
+      cb();
+    } else {
+      global.module = {};
 
-        this.plugins[plugin] = global.module.exports;
+      _loadScript('/archae/plugins/' + plugin + '/' + plugin + (!env.webworker ? '' : '-worker') + '.js')
+        .then(() => {
+          console.log('plugin loaded:', plugin);
 
-        global.module = {};
+          this.plugins[plugin] = global.module.exports;
 
-        cb();
-      })
-      .catch(err => {
-        cb(err);
-      });
+          global.module = {};
+
+          cb();
+        })
+        .catch(err => {
+          cb(err);
+        });
+    }
   }
 
   unloadPlugin(pluginName) {
@@ -306,39 +340,45 @@ class ArchaeClient {
   }
 
   mountPlugin(plugin, cb) {
-    const moduleRequire = this.plugins[plugin];
+    const existingPluginApi = this.pluginApis[plugin];
 
-    if (moduleRequire) {
-      Promise.resolve(_instantiate(moduleRequire, this))
-        .then(pluginInstance => {
-          pluginInstance[nameSymbol] = plugin;
-          this.pluginInstances[plugin] = pluginInstance;
-
-          Promise.resolve(pluginInstance.mount())
-            .then(pluginApi => {
-              if (typeof pluginApi !== 'object' || pluginApi === null) {
-                pluginApi = {};
-              }
-              pluginApi[nameSymbol] = plugin;
-
-              this.pluginApis[plugin] = pluginApi;
-
-              cb();
-            })
-            .catch(err => {
-              cb(err);
-            });
-        })
-        .catch(err => {
-          cb(err);
-        });
-    } else {
-      this.pluginInstances[plugin] = null;
-      this.pluginApis[plugin] = {
-        [nameSymbol]: plugin,
-      };
-
+    if (existingPluginApi) {
       cb();
+    } else {
+      const moduleRequire = this.plugins[plugin];
+
+      if (moduleRequire) {
+        Promise.resolve(_instantiate(moduleRequire, this))
+          .then(pluginInstance => {
+            pluginInstance[nameSymbol] = plugin;
+            this.pluginInstances[plugin] = pluginInstance;
+
+            Promise.resolve(pluginInstance.mount())
+              .then(pluginApi => {
+                if (typeof pluginApi !== 'object' || pluginApi === null) {
+                  pluginApi = {};
+                }
+                pluginApi[nameSymbol] = plugin;
+
+                this.pluginApis[plugin] = pluginApi;
+
+                cb();
+              })
+              .catch(err => {
+                cb(err);
+              });
+          })
+          .catch(err => {
+            cb(err);
+          });
+      } else {
+        this.pluginInstances[plugin] = null;
+        this.pluginApis[plugin] = {
+          [nameSymbol]: plugin,
+        };
+
+        cb();
+      }
     }
   }
 
