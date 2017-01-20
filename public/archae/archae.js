@@ -201,15 +201,23 @@ class ArchaeClient {
           const {pluginName} = result;
           const oldPluginApi = this.pluginApis[pluginName];
 
-          this.unmountPlugin(pluginName, err => {
-            if (err) {
-              console.warn(err);
-            }
+          this.mountsMutex.lock(pluginName)
+            .then(unlock => {
+              this.unmountPlugin(pluginName, err => {
+                if (err) {
+                  console.warn(err);
+                }
 
-            this.unloadPlugin(pluginName);
+                this.unloadPlugin(pluginName);
 
-            accept(oldPluginApi);
-          });
+                accept(oldPluginApi);
+
+                unlock();
+              });
+            })
+            .catch(err => {
+              reject(err);
+            });
         } else {
           reject(err);
         }
@@ -314,7 +322,7 @@ class ArchaeClient {
   loadPlugin(plugin, cb) {
     const existingPlugin = this.plugins[plugin];
 
-    if (existingPlugin) {
+    if (existingPlugin !== undefined) {
       cb();
     } else {
       global.module = {};
@@ -342,7 +350,7 @@ class ArchaeClient {
   mountPlugin(plugin, cb) {
     const existingPluginApi = this.pluginApis[plugin];
 
-    if (existingPluginApi) {
+    if (existingPluginApi !== undefined) {
       cb();
     } else {
       const moduleRequire = this.plugins[plugin];
@@ -385,16 +393,20 @@ class ArchaeClient {
   unmountPlugin(pluginName, cb) {
     const pluginInstance = this.pluginInstances[pluginName];
 
-    Promise.resolve(typeof pluginInstance.unmount === 'function' ? pluginInstance.unmount() : null)
-      .then(() => {
-        delete this.pluginInstances[pluginName];
-        delete this.pluginApis[pluginName];
+    if (pluginInstance !== undefined) {
+      Promise.resolve(typeof pluginInstance.unmount === 'function' ? pluginInstance.unmount() : null)
+        .then(() => {
+          delete this.pluginInstances[pluginName];
+          delete this.pluginApis[pluginName];
 
-        cb();
-      })
-      .catch(err => {
-        cb(err);
-      });
+          cb();
+        })
+        .catch(err => {
+          cb(err);
+        });
+    } else {
+      cb();
+    }
   }
 
   getCore() {

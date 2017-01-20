@@ -85,7 +85,9 @@ class ArchaeServer {
     this.plugins = {};
     this.pluginInstances = {};
     this.pluginApis = {};
-    this.pluginsMutex = new MultiMutex();
+    this.installsMutex = new MultiMutex();
+    this.loadsMutex = new MultiMutex();
+    this.mountsMutex = new MultiMutex();
 
     this.mountApp();
   }
@@ -182,8 +184,14 @@ class ArchaeServer {
           }
         });
       })));
-      const _lockPlugins = pluginNames => Promise.all(pluginNames.map(pluginName => this.pluginsMutex.lock(pluginName)));
-      const _bootPlugins = (pluginNames, unlocks) => Promise.all(pluginNames.map((pluginName, i) => new Promise((accept, reject) => {
+      const _lockPlugins = (mutex, pluginNames) => Promise.all(pluginNames.map(pluginName => mutex.lock(pluginName)))
+        .then(unlocks => Promise.resolve(() => {
+          for (let i = 0; i < unlocks.length; i++) {
+            const unlock = unlocks[i];
+            unlock();
+          }
+        }));
+      const _bootPlugins = pluginNames => Promise.all(pluginNames.map(pluginName => new Promise((accept, reject) => {
         const cb = (err, result) => {
           if (!err) {
             accept(result);
@@ -191,41 +199,45 @@ class ArchaeServer {
             reject(err);
           }
         };
-        const unlockCb = (cb => (err, result) => {
-          cb(err, result);
 
-          const unlock = unlocks[i];
-          unlock();
-        })(cb);
+        this.loadsMutex.lock(pluginName)
+          .then(unlock => {
+            this.loadPlugin(pluginName, err => {
+              if (!err) {
+                this.mountsMutex.lock(pluginName)
+                  .then(unlock => {
+                    this.mountPlugin(pluginName, err => {
+                      if (!err) {
+                        cb(null, this.pluginApis[pluginName]);
+                      } else {
+                        cb(err);
+                      }
 
-        const existingPlugin = this.plugins[pluginName];
+                      unlock();
+                    });
+                  })
+                  .catch(err => {
+                    cb(err);
+                  });
+              } else {
+                cb(err);
+              }
 
-        if (existingPlugin !== undefined) {
-          unlockCb(null, this.pluginApis[pluginName]);
-        } else {
-          this.loadPlugin(pluginName, err => {
-            if (!err) {
-              this.mountPlugin(pluginName, err => {
-                if (!err) {
-                  unlockCb(null, this.pluginApis[pluginName]);
-                } else {
-                  unlockCb(err);
-                }
-              });
-            } else {
-              unlockCb(err);
-            }
+              unlock();
+            });
+          })
+          .catch(err => {
+            cb(err);
           });
-        }
       })));
 
       _getModuleRealNames(plugins)
         .then(pluginNames => {
-          _lockPlugins(pluginNames)
-            .then(unlocks => {
+          _lockPlugins(this.installsMutex, pluginNames)
+            .then(unlock => {
               installer.addModules(plugins, err => {
                 if (!err) {
-                  _bootPlugins(pluginNames, unlocks)
+                  _bootPlugins(pluginNames)
                     .then(pluginApis => {
                       cb(null, pluginApis);
                     })
@@ -234,13 +246,13 @@ class ArchaeServer {
                     });
                 } else {
                   cb(err);
-
-                  for (let i = 0; i < unlocks.length; i++) {
-                    const unlock = unlocks[i];
-                    unlock();
-                  }
                 }
+
+                unlock();
               });
+            })
+            .catch(err => {
+              cb(err);
             });
         })
         .catch(err => {
@@ -262,30 +274,34 @@ class ArchaeServer {
       };
 
       pather.getModuleRealName(plugin, (err, pluginName) => {
-        this.pluginsMutex.lock(pluginName)
+        this.mountsMutex.lock(pluginName)
           .then(unlock => {
-            const unlockCb = (cb => (err, result) => {
-              cb(err, result);
-
-              unlock();
-            })(cb);
-
             this.unmountPlugin(pluginName, err => {
               if (!err) {
                 this.unloadPlugin(pluginName);
 
-                installer.removeModule(pluginName, err => {
-                  if (!err) {
-                    unlockCb(null, {
-                      pluginName,
+                this.installsMutex.lock(pluginName)
+                  .then(unlock => {
+                    installer.removeModule(pluginName, err => {
+                      if (!err) {
+                        cb(null, {
+                          pluginName,
+                        });
+                      } else {
+                        cb(err);
+                      }
+
+                      unlock();
                     });
-                  } else {
-                    unlockCb(err);
-                  }
-                });
+                  })
+                  .catch(err => {
+                    cb(err);
+                  });
               } else {
-                unlockCb(err);
+                cb(err);
               }
+
+              unlock();
             });
           })
           .catch(err => {
@@ -323,22 +339,28 @@ class ArchaeServer {
   }
 
   loadPlugin(plugin, cb) {
-    this.getPackageJsonFileName(plugin, 'server', (err, fileName) => {
-      if (!err) {
-        if (fileName) {
-          const {dirname} = this;
-          const moduleRequire = require(path.join(dirname, 'installed', 'plugins', 'node_modules', plugin, fileName));
+    const existingPlugin = this.plugins[plugin];
 
-          this.plugins[plugin] = moduleRequire;
+    if (existingPlugin !== undefined) {
+      cb();
+    } else {
+      this.getPackageJsonFileName(plugin, 'server', (err, fileName) => {
+        if (!err) {
+          if (fileName) {
+            const {dirname} = this;
+            const moduleRequire = require(path.join(dirname, 'installed', 'plugins', 'node_modules', plugin, fileName));
+
+            this.plugins[plugin] = moduleRequire;
+          } else {
+            this.plugins[plugin] = null;
+          }
+
+          cb();
         } else {
-          this.plugins[plugin] = null;
+          cb(err);
         }
-
-        cb();
-      } else {
-        cb(err);
-      }
-    });
+      });
+    }
   }
 
   unloadPlugin(pluginName) {
@@ -346,39 +368,45 @@ class ArchaeServer {
   }
 
   mountPlugin(plugin, cb) {
-    const moduleRequire = this.plugins[plugin];
+    const existingPluginApi = this.pluginApis[plugin];
 
-    if (moduleRequire !== null) {
-      Promise.resolve(_instantiate(moduleRequire, this))
-        .then(pluginInstance => {
-          this.pluginInstances[plugin] = pluginInstance;
-
-          Promise.resolve(pluginInstance.mount())
-            .then(pluginApi => {
-              if (typeof pluginApi !== 'object' || pluginApi === null) {
-                pluginApi = {};
-              }
-              pluginApi[nameSymbol] = plugin;
-
-              this.pluginApis[plugin] = pluginApi;
-
-              cb();
-            })
-            .catch(err => {
-              cb(err);
-            });
-        })
-        .catch(err => {
-
-          cb(err);
-        });
-    } else {
-      this.pluginInstances[plugin] = {};
-      this.pluginApis[plugin] = {
-        [nameSymbol]: plugin,
-      };
-
+    if (existingPluginApi !== undefined) {
       cb();
+    } else {
+      const moduleRequire = this.plugins[plugin];
+
+      if (moduleRequire !== null) {
+        Promise.resolve(_instantiate(moduleRequire, this))
+          .then(pluginInstance => {
+            this.pluginInstances[plugin] = pluginInstance;
+
+            Promise.resolve(pluginInstance.mount())
+              .then(pluginApi => {
+                if (typeof pluginApi !== 'object' || pluginApi === null) {
+                  pluginApi = {};
+                }
+                pluginApi[nameSymbol] = plugin;
+
+                this.pluginApis[plugin] = pluginApi;
+
+                cb();
+              })
+              .catch(err => {
+                cb(err);
+              });
+          })
+          .catch(err => {
+
+            cb(err);
+          });
+      } else {
+        this.pluginInstances[plugin] = {};
+        this.pluginApis[plugin] = {
+          [nameSymbol]: plugin,
+        };
+
+        cb();
+      }
     }
   }
 
@@ -397,7 +425,7 @@ class ArchaeServer {
           cb(err);
         });
     } else {
-      process.nextTick(cb);
+      cb();
     }
   }
 
