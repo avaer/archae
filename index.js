@@ -1,5 +1,4 @@
 const path = require('path');
-const fs = require('fs-extra');
 const https = require('https');
 const child_process = require('child_process');
 
