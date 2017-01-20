@@ -30,7 +30,6 @@ const npmCommands = (() => {
   if (_hasCommand('npm')) {
     return {
       install: ['npm', 'install'],
-      // cache: ['npm', 'cache'],
     };
   } else {
     return null;
@@ -970,23 +969,6 @@ class ArchaeInstaller {
           accept(unlock);
         });
       });
-      /* const _cacheClean = moduleSpecs => Promise.all(moduleSpecs.map(moduleSpec => new Promise((accept, reject) => {
-        const {moduleName} = moduleSpec;
-        const npmCacheClean = child_process.spawn(
-          npmCommands.cache[0],
-          npmCommands.cache.slice(1).concat(['clean', moduleName])
-        );
-        npmCacheClean.on('exit', code => {
-          if (code === 0) {
-            accept();
-          } else {
-            reject(new Error('npm cache clean error: ' + code));
-          }
-        });
-        npmCacheClean.on('error', err => {
-          reject(err);
-        });
-      }))); */
       const _install = moduleSpecs => new Promise((accept, reject) => {
         const modulePaths = moduleSpecs.map(moduleSpec => {
           const {module} = moduleSpec;
@@ -1025,8 +1007,6 @@ class ArchaeInstaller {
             unlock();
           })(cb);
 
-          /* _cacheClean(moduleSpecs)
-            .then(() => _install(moduleSpecs)) */
           _install(moduleSpecs)
             .then(() => {
               unlockCb();
