@@ -12,7 +12,7 @@
   "dependencies": {
     "cryptoutils": "0.0.2",
     "express": "^4.14.0",
-    "fs-hasher": "0.0.4",
+    "fs-hasher": "0.0.5",
     "mkdirp": "^0.5.1",
     "multimutex": "0.0.2",
     "rimraf": "^2.5.4",
