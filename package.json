@@ -1,7 +1,7 @@
 {
   "name": "archae",
   "main": "index.js",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "scripts": {
     "start": "node ./example/index.js"
   },
