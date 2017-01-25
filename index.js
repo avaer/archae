@@ -477,6 +477,26 @@ class ArchaeServer {
     server.removeUpgradeHandler = upgradeHandler => {
       upgradeHandlers.splice(upgradeHandlers.indexOf(upgradeHandler), 1);
     };
+    server.on('upgrade', (req, socket, head) => {
+      let handled = false;
+      for (let i = 0; i < upgradeHandlers.length; i++) {
+        const upgradeHandler = upgradeHandlers[i];
+        if (upgradeHandler(req, socket, head) === false) {
+          handled = true;
+          break;
+        }
+      }
+
+      if (!handled) {
+        if (!staticSite) {
+          wss.handleUpgrade(req, socket, head, c => {
+            wss.emit('connection', c);
+          });
+        } else {
+          socket.destroy();
+        }
+      }
+    });
 
     if (!staticSite) {
       // archae public
@@ -543,23 +563,6 @@ class ArchaeServer {
           next();
         }
       }));
-
-      server.on('upgrade', (req, socket, head) => {
-        let handled = false;
-        for (let i = 0; i < upgradeHandlers.length; i++) {
-          const upgradeHandler = upgradeHandlers[i];
-          if (upgradeHandler(req, socket, head) === false) {
-            handled = true;
-            break;
-          }
-        }
-
-        if (!handled) {
-          wss.handleUpgrade(req, socket, head, c => {
-            wss.emit('connection', c);
-          });
-        }
-      });
 
       wss.on('connection', c => {
         const {url} = c.upgradeReq;
