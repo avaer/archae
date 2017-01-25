@@ -443,19 +443,43 @@ class ArchaeServer {
   }
 
   mountApp() {
-    const {dirname, publicDirectory, server, app, wss, staticSite} = this;
+    const {hostname, dirname, publicDirectory, server, app, wss, staticSite} = this;
+
+    const localApp = express();
+
+    app.use('*', (req, res, next) => {
+      const requestHostname = (() => {
+        const hostHeader = req.get('Host') || '';
+        const match = hostHeader.match(/^([^:]+)(?::[\s\S]*)?$/);
+        return match && match[1];
+      })();
+
+      if (requestHostname === hostname) {
+        next();
+      } else {
+        next('route');
+      }
+    }, localApp);
 
     // user public
     if (publicDirectory) {
-      app.use('/', express.static(path.join(dirname, publicDirectory)));
+      localApp.use('/', express.static(path.join(dirname, publicDirectory)));
     }
+
+    const upgradeHandlers = [];
+    server.addUpgradeHandler = upgradeHandler => {
+      upgradeHandlers.push(upgradeHandler);
+    };
+    server.removeUpgradeHandler = upgradeHandler => {
+      upgradeHandlers.splice(upgradeHandlers.indexOf(upgradeHandler), 1);
+    };
 
     if (!staticSite) {
       // archae public
-      app.use('/', express.static(path.join(__dirname, 'public')));
+      localApp.use('/', express.static(path.join(__dirname, 'public')));
 
       // archae lists
-      app.use('/archae/plugins.json', (req, res, next) => {
+      localApp.use('/archae/plugins.json', (req, res, next) => {
         const plugins = this.getLoadedPlugins();
 
         res.type('application/json');
@@ -466,7 +490,7 @@ class ArchaeServer {
 
       // archae bundles
       const bundleCache = {};
-      app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
+      localApp.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
         const {params} = req;
         const module = params[0];
         const target = params[1];
@@ -516,13 +540,6 @@ class ArchaeServer {
         }
       });
 
-      const upgradeHandlers = [];
-      server.addUpgradeHandler = upgradeHandler => {
-        upgradeHandlers.push(upgradeHandler);
-      };
-      server.removeUpgradeHandler = upgradeHandler => {
-        upgradeHandlers.splice(upgradeHandlers.indexOf(upgradeHandler), 1);
-      };
       server.on('upgrade', (req, socket, head) => {
         let handled = false;
         for (let i = 0; i < upgradeHandlers.length; i++) {
