@@ -22,6 +22,7 @@ const defaultConfig = {
   port: 8000,
   publicDirectory: null,
   dataDirectory: 'data',
+  metadata: null,
 };
 
 const npmCommands = (() => {
@@ -57,6 +58,9 @@ class ArchaeServer {
 
     dataDirectory = dataDirectory || defaultConfig.dataDirectory;
     this.dataDirectory = dataDirectory;
+
+    metadata = metadata || defaultConfig.metadata;
+    this.metadata = metadata;
 
     server = server ||this.getServer();
     this.server = server;
