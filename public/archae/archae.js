@@ -95,11 +95,16 @@ const nameSymbol = Symbol();
 
 class ArchaeClient {
   constructor() {
+    this.metadata = null;
+
     this.plugins = {};
     this.pluginInstances = {};
     this.pluginApis = {};
     this.loadsMutex = new MultiMutex();
     this.mountsMutex = new MultiMutex();
+
+    this.connect();
+    this.listen();
   }
 
   requestPlugin(plugin) {
@@ -315,10 +320,6 @@ class ArchaeClient {
     return Promise.resolve(fakeWorker);
   }
 
-  bootstrap() {
-    this.connect();
-  }
-
   loadPlugin(plugin, cb) {
     const existingPlugin = this.plugins[plugin];
 
@@ -449,6 +450,12 @@ class ArchaeClient {
     this._listeners = [];
   }
 
+  listen() {
+    this.on('init', ({metadata}) => {
+      this.metadata = metadata;
+    });
+  }
+
   request(method, args, cb) {
     const id = _makeId();
 
@@ -557,6 +564,4 @@ const _asyncEval = s => new Promise((accept, reject) => {
 });
 
 const archae = new ArchaeClient();
-archae.bootstrap();
-
 global.archae = archae;

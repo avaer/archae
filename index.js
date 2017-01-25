@@ -447,7 +447,7 @@ class ArchaeServer {
   }
 
   mountApp() {
-    const {hostname, dirname, publicDirectory, server, app, wss, staticSite} = this;
+    const {hostname, dirname, publicDirectory, metadata, server, app, wss, staticSite} = this;
 
     app.all('*', (req, res, next) => {
       const requestHostname = (() => {
@@ -574,6 +574,13 @@ class ArchaeServer {
           console.log('connection open');
 
           this.connections.push(c);
+
+          const e = {
+            type: 'init',
+            metadata,
+          };
+          const es = JSON.stringify(e);
+          c.send(es);
 
           c.on('message', s => {
             const m = JSON.parse(s);
