@@ -43,7 +43,7 @@ if (!npmCommands) {
 const nameSymbol = Symbol();
 
 class ArchaeServer {
-  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, server, app, wss, staticSite} = {}) {
+  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, metadata, server, app, wss, staticSite} = {}) {
     dirname = dirname || process.cwd();
     this.dirname = dirname;
 
