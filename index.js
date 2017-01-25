@@ -445,25 +445,29 @@ class ArchaeServer {
   mountApp() {
     const {hostname, dirname, publicDirectory, server, app, wss, staticSite} = this;
 
-    const localApp = express();
-
-    app.use('*', (req, res, next) => {
+    app.all('*', (req, res, next) => {
       const requestHostname = (() => {
         const hostHeader = req.get('Host') || '';
         const match = hostHeader.match(/^([^:]+)(?::[\s\S]*)?$/);
         return match && match[1];
       })();
 
-      if (requestHostname === hostname) {
-        next();
+      req.isLocalHostname = requestHostname === hostname;
+
+      next();
+    });
+    const filterIsLocalHostname = cb => (req, res, next) => {
+      if (req.isLocalHostname) {
+        cb(req, res, next);
       } else {
         next('route');
       }
-    }, localApp);
+    };
+    app.filterIsLocalHostname = filterIsLocalHostname;
 
     // user public
     if (publicDirectory) {
-      localApp.use('/', express.static(path.join(dirname, publicDirectory)));
+      app.use('/', app.filterIsLocalHostname(express.static(path.join(dirname, publicDirectory))));
     }
 
     const upgradeHandlers = [];
@@ -476,21 +480,21 @@ class ArchaeServer {
 
     if (!staticSite) {
       // archae public
-      localApp.use('/', express.static(path.join(__dirname, 'public')));
+      app.use('/', app.filterIsLocalHostname(express.static(path.join(__dirname, 'public'))));
 
       // archae lists
-      localApp.use('/archae/plugins.json', (req, res, next) => {
+      app.use('/archae/plugins.json', app.filterIsLocalHostname((req, res, next) => {
         const plugins = this.getLoadedPlugins();
 
         res.type('application/json');
         res.send(JSON.stringify({
           plugins,
         }, null, 2));
-      });
+      }));
 
       // archae bundles
       const bundleCache = {};
-      localApp.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
+      app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, app.filterIsLocalHostname((req, res, next) => {
         const {params} = req;
         const module = params[0];
         const target = params[1];
@@ -538,7 +542,7 @@ class ArchaeServer {
         } else {
           next();
         }
-      });
+      }));
 
       server.on('upgrade', (req, socket, head) => {
         let handled = false;
