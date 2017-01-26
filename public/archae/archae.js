@@ -122,6 +122,14 @@ class ArchaeClient {
         }
       };
 
+      const _emitPluginLoadStart = () => new Promise((accept, reject) => {
+        for (let i = 0; i < plugins.length; i++) {
+          const plugin = plugins[i];
+          this.emit('pluginloadstart', plugin);
+        }
+
+        accept();
+      });
       const _requestPluginsRemote = plugins => new Promise((accept, reject) => {
         this.request('requestPlugins', {
           plugins,
@@ -133,7 +141,7 @@ class ArchaeClient {
           }
         });
       });
-      const _bootPlugins = pluginSpecs => Promise.all(pluginSpecs.map(pluginSpec => new Promise((accept, reject) => {
+      const _bootPlugins = pluginSpecs => Promise.all(pluginSpecs.map((pluginSpec, index) => new Promise((accept, reject) => {
         const cb = (err, result) => {
           if (!err) {
             accept(result);
@@ -143,6 +151,7 @@ class ArchaeClient {
         };
 
         const {pluginName, hasClient} = pluginSpec;
+        const plugin = plugins[index];
 
         const _loadPlugin = cb => {
           if (hasClient) {
@@ -150,6 +159,8 @@ class ArchaeClient {
               .then(unlock => {
                 this.loadPlugin(pluginName, err => {
                   cb(err);
+
+                  this.emit('pluginload', plugin);
 
                   unlock();
                 });
@@ -185,7 +196,8 @@ class ArchaeClient {
         });
       })));
 
-      _requestPluginsRemote(plugins)
+      _emitPluginLoadStart()
+        .then(() => _requestPluginsRemote(plugins))
         .then(pluginSpecs => _bootPlugins(pluginSpecs)
           .then(pluginApis => {
             cb(null, pluginApis);
@@ -330,8 +342,6 @@ class ArchaeClient {
 
       _loadScript('/archae/plugins/' + plugin + '/' + plugin + (!env.webworker ? '' : '-worker') + '.js')
         .then(() => {
-          console.log('plugin loaded:', plugin);
-
           this.plugins[plugin] = global.module.exports;
 
           global.module = {};
@@ -422,8 +432,6 @@ class ArchaeClient {
     const connection = (() => {
       const result = new WebSocket('wss://' + location.host + '/archae/ws');
       result.onopen = () => {
-        console.log('on open');
-
         if (this._queue.length > 0) {
           for (let i = 0; i < this._queue.length; i++) {
             this.send(this._queue[i]);
@@ -437,8 +445,8 @@ class ArchaeClient {
       result.onmessage = msg => {
         const m = JSON.parse(msg.data);
 
-        for (let i = 0; i < this._listeners.length; i++) {
-          const listener = this._listeners[i];
+        for (let i = 0; i < this._messageListeners.length; i++) {
+          const listener = this._messageListeners[i];
           listener(m);
         }
       };
@@ -447,11 +455,12 @@ class ArchaeClient {
 
     this._connection = connection;
     this._queue = [];
-    this._listeners = [];
+    this._messageListeners = [];
+    this._listeners = {};
   }
 
   listen() {
-    this.on('init', ({metadata}) => {
+    this.onMessage('init', ({metadata}) => {
       this.metadata = metadata;
     });
   }
@@ -465,7 +474,7 @@ class ArchaeClient {
       id: id,
     });
 
-    this.onceId(id, (err, result) => {
+    this.onceMessageId(id, (err, result) => {
       if (!err) {
         cb(null, result);
       } else {
@@ -482,23 +491,59 @@ class ArchaeClient {
     }
   }
 
-  on(type, handler) {
-    this._listeners.push(m => {
+  onMessage(type, handler) {
+    this._messageListeners.push(m => {
       if (m.type === type) {
         handler(m);
       }
     });
   }
 
-  onceId(id, handler) {
+  onceMessageId(id, handler) {
     const listener = m => {
       if (m.id === id) {
         handler(m.error, m.result);
 
-        this._listeners.splice(this._listeners.indexOf(listener), 1);
+        this._messageListeners.splice(this._messageListeners.indexOf(listener), 1);
       }
     };
-    this._listeners.push(listener);
+    this._messageListeners.push(listener);
+  }
+
+  on(event, handler) {
+    let listeners = this._listeners[event];
+    if (!listeners) {
+      listeners = [];
+      this._listeners[event] = listeners;
+    }
+    listeners.push(handler);
+  }
+
+  removeListener(event, handler) {
+    const listeners = this._listeners[event];
+
+    if (listeners) {
+      const index = listeners.indexOf(handler);
+
+      if (index !== -1) {
+        listeners.splice(index, 1);
+
+        if (listeners.length === 0) {
+          this._listeners[event] = null;
+        }
+      }
+    }
+  }
+
+  emit(event, data) {
+    const listeners = this._listeners[event];
+
+    if (listeners) {
+      for (let i = 0; i < listeners.length; i++) {
+        const listener = listeners[i];
+        listener(data);
+      }
+    }
   }
 }
 
