@@ -439,6 +439,7 @@ class ArchaeServer {
       app: this.app,
       wss: this.wss,
       dirname: this.dirname,
+      dataDirectory: this.dataDirectory,
     };
   }
 
