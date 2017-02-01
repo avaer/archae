@@ -435,6 +435,7 @@ class ArchaeServer {
   getCore() {
     return {
       express: express,
+      ws: ws,
       server: this.server,
       app: this.app,
       wss: this.wss,
