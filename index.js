@@ -166,7 +166,7 @@ class ArchaeServer {
       .then(([plugin]) => Promise.resolve(plugin));
   }
 
-  requestPlugins(plugins) {
+  installPlugins(plugins) {
     return new Promise((accept, reject) => {
       const {pather, installer} = this;
 
@@ -240,13 +240,7 @@ class ArchaeServer {
             .then(unlock => {
               installer.addModules(plugins, err => {
                 if (!err) {
-                  _bootPlugins(pluginNames)
-                    .then(pluginApis => {
-                      cb(null, pluginApis);
-                    })
-                    .catch(err => {
-                      cb(err);
-                    });
+                  cb(null, pluginNames);
                 } else {
                   cb(err);
                 }
@@ -260,6 +254,72 @@ class ArchaeServer {
         })
         .catch(err => {
           cb(err);
+        });
+    });
+  }
+
+  requestPlugins(plugins) {
+    return new Promise((accept, reject) => {
+      const cb = (err, result) => {
+        if (!err) {
+          accept(result);
+        } else {
+          reject(err);
+        }
+      };
+
+      const _bootPlugins = pluginNames => Promise.all(pluginNames.map(pluginName => new Promise((accept, reject) => {
+        const cb = (err, result) => {
+          if (!err) {
+            accept(result);
+          } else {
+            reject(err);
+          }
+        };
+
+        this.loadsMutex.lock(pluginName)
+          .then(unlock => {
+            this.loadPlugin(pluginName, err => {
+              if (!err) {
+                this.mountsMutex.lock(pluginName)
+                  .then(unlock => {
+                    this.mountPlugin(pluginName, err => {
+                      if (!err) {
+                        cb(null, this.pluginApis[pluginName]);
+                      } else {
+                        cb(err);
+                      }
+
+                      unlock();
+                    });
+                  })
+                  .catch(err => {
+                    cb(err);
+                  });
+              } else {
+                cb(err);
+              }
+
+              unlock();
+            });
+          })
+          .catch(err => {
+            cb(err);
+          });
+      })));
+
+      this.installPlugins(plugins)
+        .then(pluginNames => {
+          _bootPlugins(pluginNames)
+            .then(pluginApis => {
+              cb(null, pluginApis);
+            })
+            .catch(err => {
+              cb(err);
+            });
+        })
+        .catch(err => {
+          reject(err);
         });
     });
   }
