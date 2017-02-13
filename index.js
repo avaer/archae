@@ -25,21 +25,9 @@ const defaultConfig = {
   metadata: null,
 };
 
-const npmCommands = (() => {
-  const _hasCommand = command => child_process.spawnSync('bash', ['-c', 'type ' + command]).status === 0;
-
-  if (_hasCommand('npm')) {
-    return {
-      install: ['npm', 'install'],
-    };
-  } else {
-    return null;
-  }
-})();
-if (!npmCommands) {
-  throw new Error('no npm or yarn command available');
-}
-
+const npmCommands = {
+  install: ['npm', 'install'],
+};
 const nameSymbol = Symbol();
 
 class ArchaeServer {
