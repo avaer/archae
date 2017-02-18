@@ -22,6 +22,7 @@ const defaultConfig = {
   port: 8000,
   publicDirectory: null,
   dataDirectory: 'data',
+  cryptoDirectory: 'crypto',
   installDirectory: 'installed',
   metadata: null,
 };
@@ -32,7 +33,7 @@ const npmCommands = {
 const nameSymbol = Symbol();
 
 class ArchaeServer {
-  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, installDirectory, metadata, server, app, wss, staticSite} = {}) {
+  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, cryptoDirectory, installDirectory, metadata, server, app, wss, staticSite} = {}) {
     dirname = dirname || process.cwd();
     this.dirname = dirname;
 
@@ -47,6 +48,9 @@ class ArchaeServer {
 
     dataDirectory = dataDirectory || defaultConfig.dataDirectory;
     this.dataDirectory = dataDirectory;
+
+    cryptoDirectory = cryptoDirectory || defaultConfig.cryptoDirectory;
+    this.cryptoDirectory = cryptoDirectory;
 
     installDirectory = installDirectory || defaultConfig.installDirectory;
     this.installDirectory = installDirectory;
@@ -88,12 +92,12 @@ class ArchaeServer {
   }
 
   loadCerts() {
-    const {dirname, hostname, dataDirectory} = this;
+    const {dirname, hostname, dataDirectory, cryptoDirectory} = this;
 
     const _getOldCerts = () => {
       const _getFile = fileName => {
         try {
-          return fs.readFileSync(path.join(dirname, dataDirectory, 'crypto', fileName), 'utf8');
+          return fs.readFileSync(path.join(dirname, cryptoDirectory, fileName), 'utf8');
         } catch(err) {
           if (err.code !== 'ENOENT') {
             console.warn(err);
@@ -122,7 +126,7 @@ class ArchaeServer {
         commonName: hostname,
       });
 
-      const cryptoDirectory = path.join(dirname, dataDirectory, 'crypto');
+      const cryptoDirectory = path.join(dirname, cryptoDirectory);
       const _makeCryptoDirectory = () => {
         mkdirp.sync(cryptoDirectory);
       };
