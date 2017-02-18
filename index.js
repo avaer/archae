@@ -92,7 +92,7 @@ class ArchaeServer {
   }
 
   loadCerts() {
-    const {dirname, hostname, dataDirectory, cryptoDirectory} = this;
+    const {dirname, hostname, cryptoDirectory} = this;
 
     const _getOldCerts = () => {
       const _getFile = fileName => {
