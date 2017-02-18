@@ -503,29 +503,9 @@ class ArchaeServer {
   mountApp() {
     const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, staticSite} = this;
 
-    app.all('*', (req, res, next) => {
-      const requestHostname = (() => {
-        const hostHeader = req.get('Host') || '';
-        const match = hostHeader.match(/^([^:]+)(?::[\s\S]*)?$/);
-        return match && match[1];
-      })();
-
-      req.isLocalHostname = requestHostname === hostname;
-
-      next();
-    });
-    const filterIsLocalHostname = cb => (req, res, next) => {
-      if (req.isLocalHostname) {
-        cb(req, res, next);
-      } else {
-        next('route');
-      }
-    };
-    app.filterIsLocalHostname = filterIsLocalHostname;
-
     // user public
     if (publicDirectory) {
-      app.use('/', app.filterIsLocalHostname(express.static(path.join(dirname, publicDirectory))));
+      app.use('/', express.static(path.join(dirname, publicDirectory)));
     }
 
     const upgradeHandlers = [];
@@ -558,21 +538,21 @@ class ArchaeServer {
 
     if (!staticSite) {
       // archae public
-      app.use('/', app.filterIsLocalHostname(express.static(path.join(__dirname, 'public'))));
+      app.use('/', express.static(path.join(__dirname, 'public')));
 
       // archae lists
-      app.use('/archae/plugins.json', app.filterIsLocalHostname((req, res, next) => {
+      app.use('/archae/plugins.json', (req, res, next) => {
         const plugins = this.getLoadedPlugins();
 
         res.type('application/json');
         res.send(JSON.stringify({
           plugins,
         }, null, 2));
-      }));
+      });
 
       // archae bundles
       const bundleCache = {};
-      app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, app.filterIsLocalHostname((req, res, next) => {
+      app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
         const {params} = req;
         const module = params[0];
         const target = params[1];
@@ -620,7 +600,7 @@ class ArchaeServer {
         } else {
           next();
         }
-      }));
+      });
 
       wss.on('connection', c => {
         const {url} = c.upgradeReq;
