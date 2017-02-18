@@ -22,6 +22,7 @@ const defaultConfig = {
   port: 8000,
   publicDirectory: null,
   dataDirectory: 'data',
+  installDirectory: 'installed',
   metadata: null,
 };
 
@@ -31,7 +32,7 @@ const npmCommands = {
 const nameSymbol = Symbol();
 
 class ArchaeServer {
-  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, metadata, server, app, wss, staticSite} = {}) {
+  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, installDirectory, metadata, server, app, wss, staticSite} = {}) {
     dirname = dirname || process.cwd();
     this.dirname = dirname;
 
@@ -46,6 +47,9 @@ class ArchaeServer {
 
     dataDirectory = dataDirectory || defaultConfig.dataDirectory;
     this.dataDirectory = dataDirectory;
+
+    installDirectory = installDirectory || defaultConfig.installDirectory;
+    this.installDirectory = installDirectory;
 
     metadata = metadata || defaultConfig.metadata;
     this.metadata = metadata;
@@ -64,11 +68,11 @@ class ArchaeServer {
     staticSite = staticSite || false;
     this.staticSite = staticSite;
 
-    const pather = new ArchaePather(dirname);
+    const pather = new ArchaePather(dirname, installDirectory);
     this.pather = pather;
     const hasher = new ArchaeHasher(dirname, pather);
     this.hasher = hasher;
-    const installer = new ArchaeInstaller(dirname, pather, hasher);
+    const installer = new ArchaeInstaller(dirname, installDirectory, pather, hasher);
     this.installer = installer;
 
     this.connections = [];
@@ -368,9 +372,9 @@ class ArchaeServer {
   }
 
   getPackageJsonFileName(plugin, packageJsonFileNameKey, cb) {
-    const {dirname} = this;
+    const {dirname, installDirectory} = this;
 
-    fs.readFile(path.join(dirname, 'installed', 'plugins', 'node_modules', plugin, 'package.json'), 'utf8', (err, s) => {
+    fs.readFile(path.join(dirname, installDirectory, 'plugins', 'node_modules', plugin, 'package.json'), 'utf8', (err, s) => {
       if (!err) {
         const j = JSON.parse(s);
         const fileName = j[packageJsonFileNameKey];
@@ -398,8 +402,8 @@ class ArchaeServer {
       this.getPackageJsonFileName(plugin, 'server', (err, fileName) => {
         if (!err) {
           if (fileName) {
-            const {dirname} = this;
-            const moduleRequire = require(path.join(dirname, 'installed', 'plugins', 'node_modules', plugin, fileName));
+            const {dirname, installDirectory} = this;
+            const moduleRequire = require(path.join(dirname, installDirectory, 'plugins', 'node_modules', plugin, fileName));
 
             this.plugins[plugin] = moduleRequire;
           } else {
@@ -497,7 +501,7 @@ class ArchaeServer {
   }
 
   mountApp() {
-    const {hostname, dirname, publicDirectory, metadata, server, app, wss, staticSite} = this;
+    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, staticSite} = this;
 
     app.all('*', (req, res, next) => {
       const requestHostname = (() => {
@@ -586,7 +590,7 @@ class ArchaeServer {
             _respondOk(entry);
           } else {
             rollup.rollup({
-              entry: path.join(dirname, 'installed', 'plugins', 'node_modules',  module, (!worker ? 'client' : 'worker') + '.js'),
+              entry: path.join(dirname, installDirectory, 'plugins', 'node_modules',  module, (!worker ? 'client' : 'worker') + '.js'),
               plugins: [
                 rollupPluginNodeResolve({
                   main: true,
@@ -769,8 +773,9 @@ class ArchaeServer {
 }
 
 class ArchaePather {
-  constructor(dirname) {
+  constructor(dirname, installDirectory) {
     this.dirname = dirname;
+    this.installDirectory = installDirectory;
   }
 
   getModuleRealName(module, cb) {
@@ -802,8 +807,8 @@ class ArchaePather {
   }
 
   getInstalledModulePath(moduleName) {
-    const {dirname} = this;
-    return path.join(dirname, 'installed', 'plugins', 'node_modules', moduleName);
+    const {dirname, installDirectory} = this;
+    return path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName);
   }
 
   getLocalModulePath(module) {
@@ -1036,8 +1041,9 @@ class ArchaeHasher {
 }
 
 class ArchaeInstaller {
-  constructor(dirname, pather, hasher) {
+  constructor(dirname, installDirectory, pather, hasher) {
     this.dirname = dirname;
+    this.installDirectory = installDirectory;
     this.pather = pather;
     this.hasher = hasher;
 
@@ -1046,7 +1052,7 @@ class ArchaeInstaller {
   }
 
   addModules(modules, cb) {
-    const {dirname, pather} = this;
+    const {dirname, installDirectory, pather} = this;
 
     const _npmInstall = (moduleSpecs, cb) => {
       const _queue = () => new Promise((accept, reject) => {
@@ -1067,7 +1073,7 @@ class ArchaeInstaller {
           npmCommands.install[0],
           npmCommands.install.slice(1).concat(modulePaths),
           {
-            cwd: path.join(dirname, 'installed', 'plugins'),
+            cwd: path.join(dirname, installDirectory, 'plugins'),
           }
         );
         npmInstall.stdout.pipe(process.stdout);
@@ -1105,7 +1111,7 @@ class ArchaeInstaller {
         });
     };
 
-    mkdirp(path.join(dirname, 'installed', 'plugins', 'node_modules'), err => {
+    mkdirp(path.join(dirname, installDirectory, 'plugins', 'node_modules'), err => {
       if (!err) {
         const _requestModuleInstallStatuses = modules => Promise.all(modules.map(module => new Promise((accept, reject) => {
           this.hasher.getModuleInstallStatus(module, (err, result) => {
