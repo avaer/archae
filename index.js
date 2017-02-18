@@ -74,7 +74,7 @@ class ArchaeServer {
 
     const pather = new ArchaePather(dirname, installDirectory);
     this.pather = pather;
-    const hasher = new ArchaeHasher(dirname, pather);
+    const hasher = new ArchaeHasher(dirname, dataDirectory, pather);
     this.hasher = hasher;
     const installer = new ArchaeInstaller(dirname, installDirectory, pather, hasher);
     this.installer = installer;
@@ -772,8 +772,9 @@ class ArchaePather {
 
 const MODULE_HASHES_MUTEX_KEY = 'key';
 class ArchaeHasher {
-  constructor(dirname, pather) {
+  constructor(dirname, dataDirectory, pather) {
     this.dirname = dirname;
+    this.dataDirectory = dataDirectory;
     this.pather = pather;
 
     this.moduleHashesMutex = new MultiMutex();
@@ -782,7 +783,7 @@ class ArchaeHasher {
   }
 
   loadModulesHashesJson(cb) {
-    const {dirname, moduleHashesMutex, modulesHashesJson} = this;
+    const {dirname, dataDirectory, moduleHashesMutex, modulesHashesJson} = this;
 
     if (modulesHashesJson !== null) {
       process.nextTick(() => {
@@ -797,7 +798,7 @@ class ArchaeHasher {
             unlock();
           };
 
-          const modulesPath = path.join(dirname, 'data', 'modules');
+          const modulesPath = path.join(dirname, dataDirectory, 'modules');
           const moduleHashesJsonPath = path.join(modulesPath, 'hashes.json');
 
           fs.readFile(moduleHashesJsonPath, 'utf8', (err, s) => {
@@ -825,7 +826,7 @@ class ArchaeHasher {
   }
 
   saveModulesHashesJson(cb) {
-    const {dirname, moduleHashesMutex, modulesHashesJson} = this;
+    const {dirname, dataDirectory, moduleHashesMutex, modulesHashesJson} = this;
 
     this.loadModulesHashesJson((err, modulesHashesJson) => {
       if (!err) {
@@ -837,7 +838,7 @@ class ArchaeHasher {
               unlock();
             };
 
-            const modulesPath = path.join(dirname, 'data', 'modules');
+            const modulesPath = path.join(dirname, dataDirectory, 'modules');
 
             mkdirp(modulesPath, err => {
               if (!err) {
