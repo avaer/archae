@@ -33,7 +33,7 @@ const npmCommands = {
 const nameSymbol = Symbol();
 
 class ArchaeServer {
-  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, cryptoDirectory, installDirectory, metadata, server, app, wss, staticSite} = {}) {
+  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, cryptoDirectory, installDirectory, metadata, server, app, wss, cors, staticSite} = {}) {
     dirname = dirname || process.cwd();
     this.dirname = dirname;
 
@@ -68,6 +68,9 @@ class ArchaeServer {
       noServer: true,
     });
     this.wss = wss;
+
+    cors = cors || false;
+    this.cors = cors;
 
     staticSite = staticSite || false;
     this.staticSite = staticSite;
@@ -466,7 +469,19 @@ class ArchaeServer {
   }
 
   mountApp() {
-    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, staticSite} = this;
+    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, staticSite} = this;
+
+    // cross-origin resoure sharing
+    if (cors) {
+      app.all('*', (req, res, next) => {
+        res.set('Access-Control-Allow-Origin', '*');
+        res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.set('Access-Control-Allow-Headers', 'Content-Type');
+        res.set('Access-Control-Allow-Credentials', 'true');
+
+        next();
+      });
+    }
 
     // user public
     if (publicDirectory) {
