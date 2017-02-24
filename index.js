@@ -129,12 +129,12 @@ class ArchaeServer {
         commonName: hostname,
       });
 
-      const cryptoDirectory = path.join(dirname, cryptoDirectory);
+      const localCryptoDirectory = path.join(dirname, cryptoDirectory);
       const _makeCryptoDirectory = () => {
-        mkdirp.sync(cryptoDirectory);
+        mkdirp.sync(localCryptoDirectory);
       };
       const _setFile = (fileName, fileData) => {
-        fs.writeFileSync(path.join(cryptoDirectory, fileName), fileData);
+        fs.writeFileSync(path.join(localCryptoDirectory, fileName), fileData);
       };
 
       _makeCryptoDirectory();
