@@ -98,9 +98,9 @@ class ArchaeServer {
     const {dirname, hostname, cryptoDirectory} = this;
 
     const _getOldCerts = () => {
-      const _getFile = fileName => {
+      const _getCertFile = fileName => {
         try {
-          return fs.readFileSync(path.join(dirname, cryptoDirectory, fileName), 'utf8');
+          return fs.readFileSync(path.join(dirname, cryptoDirectory, 'cert', fileName), 'utf8');
         } catch(err) {
           if (err.code !== 'ENOENT') {
             console.warn(err);
@@ -109,8 +109,8 @@ class ArchaeServer {
         }
       };
 
-      const privateKey = _getFile('private.pem');
-      const cert = _getFile('cert.pem');
+      const privateKey = _getCertFile('private.pem');
+      const cert = _getCertFile('cert.pem');
       if (privateKey && cert) {
         return {
           privateKey,
@@ -129,18 +129,18 @@ class ArchaeServer {
         commonName: hostname,
       });
 
-      const localCryptoDirectory = path.join(dirname, cryptoDirectory);
-      const _makeCryptoDirectory = () => {
-        mkdirp.sync(localCryptoDirectory);
+      const certDirectory = path.join(dirname, cryptoDirectory, 'cert');
+      const _makeCertDirectory = () => {
+        mkdirp.sync(certDirectory);
       };
-      const _setFile = (fileName, fileData) => {
-        fs.writeFileSync(path.join(localCryptoDirectory, fileName), fileData);
+      const _setCertFile = (fileName, fileData) => {
+        fs.writeFileSync(path.join(certDirectory, fileName), fileData);
       };
 
-      _makeCryptoDirectory();
-      _setFile('public.pem', publicKey);
-      _setFile('private.pem', privateKey);
-      _setFile('cert.pem', cert);
+      _makeCertDirectory();
+      _setCertFile('public.pem', publicKey);
+      _setCertFile('private.pem', privateKey);
+      _setCertFile('cert.pem', cert);
 
       return {
         privateKey,
