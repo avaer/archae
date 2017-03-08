@@ -33,7 +33,7 @@ const npmCommands = {
 const nameSymbol = Symbol();
 
 class ArchaeServer {
-  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, cryptoDirectory, installDirectory, metadata, server, app, wss, cors, staticSite} = {}) {
+  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, cryptoDirectory, installDirectory, metadata, server, app, wss, cors, corsOrigin, staticSite} = {}) {
     dirname = dirname || process.cwd();
     this.dirname = dirname;
 
@@ -71,6 +71,9 @@ class ArchaeServer {
 
     cors = cors || false;
     this.cors = cors;
+
+    corsOrigin = corsOrigin || '*';
+    this.corsOrigin = corsOrigin;
 
     staticSite = staticSite || false;
     this.staticSite = staticSite;
@@ -469,12 +472,12 @@ class ArchaeServer {
   }
 
   mountApp() {
-    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, staticSite} = this;
+    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, corsOrigin, staticSite} = this;
 
     // cross-origin resoure sharing
     if (cors) {
       app.all('*', (req, res, next) => {
-        res.set('Access-Control-Allow-Origin', '*');
+        res.set('Access-Control-Allow-Origin', corsOrigin);
         res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
         res.set('Access-Control-Allow-Credentials', 'true');
