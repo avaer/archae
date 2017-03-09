@@ -694,37 +694,37 @@ class ArchaeServer {
                   .catch(err => {
                     cb(err);
                   });
+              } else if (method === 'requestPlugins') {
+                const {plugins} = args;
+
+                this.requestPlugins(plugins)
+                  .then(pluginApis => Promise.all(pluginApis.map(pluginApi => new Promise((accept, reject) => {
+                    const pluginName = this.getName(pluginApi);
+
+                    this.getPluginClient(pluginName, (err, clientFileName) => {
+                      if (!err) {
+                        const hasClient = Boolean(clientFileName);
+
+                        accept({
+                          pluginName,
+                          hasClient,
+                        });
+                      } else {
+                        reject(err);
+                      }
+                    });
+                  }))))
+                  .then(pluginSpecs => {
+                    cb(null, pluginSpecs);
+                  })
+                  .catch(err => {
+                    cb(err);
+                  });
               } else {
                 const {locked} = this;
 
                 if (!locked) {
-                  if (method === 'requestPlugins') {
-                    const {plugins} = args;
-
-                    this.requestPlugins(plugins)
-                      .then(pluginApis => Promise.all(pluginApis.map(pluginApi => new Promise((accept, reject) => {
-                        const pluginName = this.getName(pluginApi);
-
-                        this.getPluginClient(pluginName, (err, clientFileName) => {
-                          if (!err) {
-                            const hasClient = Boolean(clientFileName);
-
-                            accept({
-                              pluginName,
-                              hasClient,
-                            });
-                          } else {
-                            reject(err);
-                          }
-                        });
-                      }))))
-                      .then(pluginSpecs => {
-                        cb(null, pluginSpecs);
-                      })
-                      .catch(err => {
-                        cb(err);
-                      });
-                  } else if (method === 'releasePlugin') {
+                  if (method === 'releasePlugin') {
                     const {plugin} = args;
 
                     this.releasePlugin(plugin)
