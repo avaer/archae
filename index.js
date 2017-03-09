@@ -33,7 +33,24 @@ const npmCommands = {
 const nameSymbol = Symbol();
 
 class ArchaeServer {
-  constructor({dirname, hostname, host, port, publicDirectory, dataDirectory, cryptoDirectory, installDirectory, metadata, server, app, wss, cors, corsOrigin, staticSite} = {}) {
+  constructor({
+    dirname,
+    hostname,
+    host,
+    port,
+    publicDirectory,
+    dataDirectory,
+    cryptoDirectory,
+    installDirectory,
+    metadata,
+    server,
+    app,
+    wss,
+    locked,
+    cors,
+    corsOrigin,
+    staticSite,
+  } = {}) {
     dirname = dirname || process.cwd();
     this.dirname = dirname;
 
@@ -68,6 +85,9 @@ class ArchaeServer {
       noServer: true,
     });
     this.wss = wss;
+
+    locked = locked || false;
+    this.locked = locked;
 
     cors = cors || false;
     this.cors = cors;
@@ -168,9 +188,23 @@ class ArchaeServer {
       .then(([plugin]) => Promise.resolve(plugin));
   }
 
+  getModuleRealNames(plugins) {
+    return Promise.all(plugins.map(plugin => new Promise((accept, reject) => {
+      const {pather} = this;
+
+      pather.getModuleRealName(plugin, (err, pluginName) => {
+        if (!err) {
+          accept(pluginName);
+        } else {
+          reject(err);
+        }
+      });
+    })));
+  }
+
   installPlugins(plugins) {
     return new Promise((accept, reject) => {
-      const {pather, installer} = this;
+      const {installer} = this;
 
       const cb = (err, result) => {
         if (!err) {
@@ -180,15 +214,6 @@ class ArchaeServer {
         }
       };
 
-      const _getModuleRealNames = plugins => Promise.all(plugins.map(plugin => new Promise((accept, reject) => {
-        pather.getModuleRealName(plugin, (err, pluginName) => {
-          if (!err) {
-            accept(pluginName);
-          } else {
-            reject(err);
-          }
-        });
-      })));
       const _lockPlugins = (mutex, pluginNames) => Promise.all(pluginNames.map(pluginName => mutex.lock(pluginName)))
         .then(unlocks => Promise.resolve(() => {
           for (let i = 0; i < unlocks.length; i++) {
@@ -197,7 +222,7 @@ class ArchaeServer {
           }
         }));
 
-      _getModuleRealNames(plugins)
+      this.getModuleRealNames(plugins)
         .then(pluginNames => {
           _lockPlugins(this.installsMutex, pluginNames)
             .then(unlock => {
@@ -231,6 +256,15 @@ class ArchaeServer {
         }
       };
 
+      const _installPlugins = plugins => {
+        const {locked} = this;
+
+        if (!locked) {
+          return this.installPlugins(plugins);
+        } else {
+          return this.getModuleRealNames(plugins);
+        }
+      };
       const _bootPlugins = pluginNames => Promise.all(pluginNames.map(pluginName => new Promise((accept, reject) => {
         const cb = (err, result) => {
           if (!err) {
@@ -271,7 +305,7 @@ class ArchaeServer {
           });
       })));
 
-      this.installPlugins(plugins)
+      _installPlugins(plugins)
         .then(pluginNames => {
           _bootPlugins(pluginNames)
             .then(pluginApis => {
@@ -455,6 +489,14 @@ class ArchaeServer {
     }
   }
 
+  lock() {
+    this.locked = true;
+  }
+
+  unlock() {
+    this.locked = false;
+  }
+
   getCore() {
     return {
       express: express,
@@ -606,6 +648,11 @@ class ArchaeServer {
               console.warn(err);
             };
 
+            const _respondInvalidMessage = () => {
+              const err = new Error('invalid message');
+              cb(err);
+            };
+
             if (typeof m === 'object' && m && typeof m.method === 'string' && ('args' in m) && typeof m.id === 'string') {
               const cb = (err = null, result = null) => {
                 if (c.readyState === ws.OPEN) {
@@ -617,6 +664,11 @@ class ArchaeServer {
                   const es = JSON.stringify(e);
                   c.send(es);
                 }
+              };
+
+              const _respondInvalidMethod = () => {
+                const err = new Error('invalid message method: ' + JSON.stringify(method));
+                cb(err);
               };
 
               const {method, args} = m;
@@ -642,59 +694,65 @@ class ArchaeServer {
                   .catch(err => {
                     cb(err);
                   });
-             } else if (method === 'requestPlugins') {
-                const {plugins} = args;
-
-                this.requestPlugins(plugins)
-                  .then(pluginApis => Promise.all(pluginApis.map(pluginApi => new Promise((accept, reject) => {
-                    const pluginName = this.getName(pluginApi);
-
-                    this.getPluginClient(pluginName, (err, clientFileName) => {
-                      if (!err) {
-                        const hasClient = Boolean(clientFileName);
-
-                        accept({
-                          pluginName,
-                          hasClient,
-                        });
-                      } else {
-                        reject(err);
-                      }
-                    });
-                  }))))
-                  .then(pluginSpecs => {
-                    cb(null, pluginSpecs);
-                  })
-                  .catch(err => {
-                    cb(err);
-                  });
-              } else if (method === 'releasePlugin') {
-                const {plugin} = args;
-
-                this.releasePlugin(plugin)
-                  .then(result => {
-                    cb(null, result);
-                  })
-                  .catch(err => {
-                    cb(err);
-                  });
-              } else if (method === 'releasePlugins') {
-                const {plugins} = args;
-
-                this.releasePlugins(plugins)
-                  .then(result => {
-                    cb(null, result);
-                  })
-                  .catch(err => {
-                    cb(err);
-                  });
               } else {
-                const err = new Error('invalid message method: ' + JSON.stringify(method));
-                cb(err);
+                const {locked} = this;
+
+                if (!locked) {
+                  if (method === 'requestPlugins') {
+                    const {plugins} = args;
+
+                    this.requestPlugins(plugins)
+                      .then(pluginApis => Promise.all(pluginApis.map(pluginApi => new Promise((accept, reject) => {
+                        const pluginName = this.getName(pluginApi);
+
+                        this.getPluginClient(pluginName, (err, clientFileName) => {
+                          if (!err) {
+                            const hasClient = Boolean(clientFileName);
+
+                            accept({
+                              pluginName,
+                              hasClient,
+                            });
+                          } else {
+                            reject(err);
+                          }
+                        });
+                      }))))
+                      .then(pluginSpecs => {
+                        cb(null, pluginSpecs);
+                      })
+                      .catch(err => {
+                        cb(err);
+                      });
+                  } else if (method === 'releasePlugin') {
+                    const {plugin} = args;
+
+                    this.releasePlugin(plugin)
+                      .then(result => {
+                        cb(null, result);
+                      })
+                      .catch(err => {
+                        cb(err);
+                      });
+                  } else if (method === 'releasePlugins') {
+                    const {plugins} = args;
+
+                    this.releasePlugins(plugins)
+                      .then(result => {
+                        cb(null, result);
+                      })
+                      .catch(err => {
+                        cb(err);
+                      });
+                  } else {
+                    _respondInvalidMethod();
+                  }
+                } else {
+                  _respondInvalidMethod();
+                }
               }
             } else {
-              const err = new Error('invalid message');
-              cb(err);
+              _respondInvalidMessage();
             }
           });
           c.on('close', () => {
