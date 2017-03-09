@@ -47,6 +47,7 @@ class ArchaeServer {
     app,
     wss,
     locked,
+    whitelist,
     cors,
     corsOrigin,
     staticSite,
@@ -88,6 +89,10 @@ class ArchaeServer {
 
     locked = locked || false;
     this.locked = locked;
+
+    this.whitelistIndex = null;
+    whitelist = whitelist || null;
+    this.setWhitelist(whitelist);
 
     cors = cors || false;
     this.cors = cors;
@@ -305,19 +310,24 @@ class ArchaeServer {
           });
       })));
 
-      _installPlugins(plugins)
-        .then(pluginNames => {
-          _bootPlugins(pluginNames)
-            .then(pluginApis => {
-              cb(null, pluginApis);
-            })
-            .catch(err => {
-              cb(err);
-            });
-        })
-        .catch(err => {
-          reject(err);
-        });
+      if (this.checkWhitelist(plugins)) {
+        _installPlugins(plugins)
+          .then(pluginNames => {
+            _bootPlugins(pluginNames)
+              .then(pluginApis => {
+                cb(null, pluginApis);
+              })
+              .catch(err => {
+                cb(err);
+              });
+          })
+          .catch(err => {
+            reject(err);
+          });
+      } else {
+        const err = new Error('plugin whitelist violation');
+        reject(err);
+      }
     });
   }
 
@@ -333,41 +343,46 @@ class ArchaeServer {
         }
       };
 
-      pather.getModuleRealName(plugin, (err, pluginName) => {
-        this.mountsMutex.lock(pluginName)
-          .then(unlock => {
-            this.unmountPlugin(pluginName, err => {
-              if (!err) {
-                this.unloadPlugin(pluginName);
+      if (this.checkWhitelist(plugins)) {
+        pather.getModuleRealName(plugin, (err, pluginName) => {
+          this.mountsMutex.lock(pluginName)
+            .then(unlock => {
+              this.unmountPlugin(pluginName, err => {
+                if (!err) {
+                  this.unloadPlugin(pluginName);
 
-                this.installsMutex.lock(pluginName)
-                  .then(unlock => {
-                    installer.removeModule(pluginName, err => {
-                      if (!err) {
-                        cb(null, {
-                          pluginName,
-                        });
-                      } else {
-                        cb(err);
-                      }
+                  this.installsMutex.lock(pluginName)
+                    .then(unlock => {
+                      installer.removeModule(pluginName, err => {
+                        if (!err) {
+                          cb(null, {
+                            pluginName,
+                          });
+                        } else {
+                          cb(err);
+                        }
 
-                      unlock();
+                        unlock();
+                      });
+                    })
+                    .catch(err => {
+                      cb(err);
                     });
-                  })
-                  .catch(err => {
-                    cb(err);
-                  });
-              } else {
-                cb(err);
-              }
+                } else {
+                  cb(err);
+                }
 
-              unlock();
+                unlock();
+              });
+            })
+            .catch(err => {
+              cb(err);
             });
-          })
-          .catch(err => {
-            cb(err);
-          });
-      });
+        });
+      } else {
+        const err = new Error('plugin whitelist violation');
+        reject(err);
+      }
     });
   }
 
@@ -495,6 +510,20 @@ class ArchaeServer {
 
   unlock() {
     this.locked = false;
+  }
+
+  checkWhitelist(plugins) {
+    const {whitelistIndex} = this;
+
+    return !whitelistIndex || plugins.every(plugin => whitelistIndex[plugin]);
+  }
+
+  setWhitelist(whitelist) {
+    if (whitelist) {
+      this.whitelistIndex = _makeIndex(whitelist);
+    } else  {
+      this.whitelistIndex = null;
+    }
   }
 
   getCore() {
@@ -1259,6 +1288,14 @@ class ArchaeInstaller {
   }
 }
 
+const _makeIndex = a => {
+  const result = {};
+  for (let i = 0; i < a.length; i++) {
+    const e = a[i];
+    result[e] = true;
+  }
+  return result;
+};
 const _instantiate = (o, arg) => {
   if (typeof o === 'function') {
     if (/^(?:function|class)/.test(o.toString())) {
