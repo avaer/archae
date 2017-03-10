@@ -325,7 +325,7 @@ class ArchaeServer {
             reject(err);
           });
       } else {
-        const err = new Error('plugin whitelist violation');
+        const err = new Error('plugin whitelist violation: ' + JSON.stringify(plugins));
         reject(err);
       }
     });
@@ -380,7 +380,7 @@ class ArchaeServer {
             });
         });
       } else {
-        const err = new Error('plugin whitelist violation');
+        const err = new Error('plugin whitelist violation: ' + JSON.stringify(plugin));
         reject(err);
       }
     });
