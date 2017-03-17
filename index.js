@@ -343,7 +343,7 @@ class ArchaeServer {
         }
       };
 
-      if (this.checkWhitelist(plugins)) {
+      if (this.checkWhitelist([plugin])) {
         pather.getModuleRealName(plugin, (err, pluginName) => {
           this.mountsMutex.lock(pluginName)
             .then(unlock => {
