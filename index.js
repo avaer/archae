@@ -30,6 +30,7 @@ const defaultConfig = {
 const npmCommands = {
   install: ['npm', 'install'],
 };
+const pathSymbol = Symbol();
 const nameSymbol = Symbol();
 
 class ArchaeServer {
@@ -270,7 +271,9 @@ class ArchaeServer {
           return this.getModuleRealNames(plugins);
         }
       };
-      const _bootPlugins = pluginNames => Promise.all(pluginNames.map(pluginName => new Promise((accept, reject) => {
+      const _bootPlugins = pluginNames => Promise.all(pluginNames.map((pluginName, index) => new Promise((accept, reject) => {
+        const plugin = plugins[index];
+
         const cb = (err, result) => {
           if (!err) {
             accept(result);
@@ -285,7 +288,7 @@ class ArchaeServer {
               if (!err) {
                 this.mountsMutex.lock(pluginName)
                   .then(unlock => {
-                    this.mountPlugin(pluginName, err => {
+                    this.mountPlugin(plugin, pluginName, err => {
                       if (!err) {
                         cb(null, this.pluginApis[pluginName]);
                       } else {
@@ -347,7 +350,7 @@ class ArchaeServer {
         pather.getModuleRealName(plugin, (err, pluginName) => {
           this.mountsMutex.lock(pluginName)
             .then(unlock => {
-              this.unmountPlugin(pluginName, err => {
+              this.unmountPlugin(plugin, pluginName, err => {
                 if (!err) {
                   this.unloadPlugin(pluginName);
 
@@ -443,13 +446,13 @@ class ArchaeServer {
     delete this.plugins[pluginName];
   }
 
-  mountPlugin(plugin, cb) {
-    const existingPluginApi = this.pluginApis[plugin];
+  mountPlugin(plugin, pluginName, cb) {
+    const existingPluginApi = this.pluginApis[pluginName];
 
     if (existingPluginApi !== undefined) {
       cb();
     } else {
-      const moduleRequire = this.plugins[plugin];
+      const moduleRequire = this.plugins[pluginName];
 
       if (moduleRequire !== null) {
         Promise.resolve(_instantiate(moduleRequire, this))
@@ -461,9 +464,10 @@ class ArchaeServer {
                 if (typeof pluginApi !== 'object' || pluginApi === null) {
                   pluginApi = {};
                 }
-                pluginApi[nameSymbol] = plugin;
+                pluginApi[pathSymbol] = plugin;
+                pluginApi[nameSymbol] = pluginName;
 
-                this.pluginApis[plugin] = pluginApi;
+                this.pluginApis[pluginName] = pluginApi;
 
                 cb();
               })
@@ -476,9 +480,10 @@ class ArchaeServer {
             cb(err);
           });
       } else {
-        this.pluginInstances[plugin] = {};
-        this.pluginApis[plugin] = {
-          [nameSymbol]: plugin,
+        this.pluginInstances[pluginName] = {};
+        this.pluginApis[pluginName] = {
+          [pathSymbol]: plugin,
+          [nameSymbol]: pluginName,
         };
 
         cb();
@@ -486,7 +491,7 @@ class ArchaeServer {
     }
   }
 
-  unmountPlugin(pluginName, cb) {
+  unmountPlugin(plugin, pluginName, cb) {
     const pluginInstance = this.pluginInstances[pluginName];
 
     if (pluginInstance !== undefined) {
@@ -537,6 +542,10 @@ class ArchaeServer {
       dirname: this.dirname,
       dataDirectory: this.dataDirectory,
     };
+  }
+
+  getPath(pluginApi) {
+    return pluginApi ? pluginApi[pathSymbol] : null;
   }
 
   getName(pluginApi) {
