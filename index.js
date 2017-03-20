@@ -356,6 +356,7 @@ class ArchaeServer {
                       installer.removeModule(pluginName, err => {
                         if (!err) {
                           cb(null, {
+                            plugin,
                             pluginName,
                           });
                         } else {
@@ -712,6 +713,7 @@ class ArchaeServer {
                       if (!err) {
                         const hasClient = Boolean(clientFileName);
                         cb(null, {
+                          plugin,
                           pluginName,
                           hasClient,
                         });
@@ -727,7 +729,8 @@ class ArchaeServer {
                 const {plugins} = args;
 
                 this.requestPlugins(plugins)
-                  .then(pluginApis => Promise.all(pluginApis.map(pluginApi => new Promise((accept, reject) => {
+                  .then(pluginApis => Promise.all(pluginApis.map((pluginApi, index) => new Promise((accept, reject) => {
+                    const plugin = plugins[index];
                     const pluginName = this.getName(pluginApi);
 
                     this.getPluginClient(pluginName, (err, clientFileName) => {
@@ -735,6 +738,7 @@ class ArchaeServer {
                         const hasClient = Boolean(clientFileName);
 
                         accept({
+                          plugin,
                           pluginName,
                           hasClient,
                         });

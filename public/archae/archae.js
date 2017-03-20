@@ -91,6 +91,7 @@ class Mutex {
 
 // end inline
 
+const pathSymbol = Symbol();
 const nameSymbol = Symbol();
 
 class ArchaeClient {
@@ -150,8 +151,8 @@ class ArchaeClient {
           }
         };
 
-        const {pluginName, hasClient} = pluginSpec;
-        const plugin = plugins[index];
+        const {plugin, pluginName, hasClient} = pluginSpec;
+        const pluginInstance = plugins[index];
 
         const _loadPlugin = cb => {
           if (hasClient) {
@@ -160,7 +161,7 @@ class ArchaeClient {
                 this.loadPlugin(pluginName, err => {
                   cb(err);
 
-                  this.emit('pluginload', plugin);
+                  this.emit('pluginload', pluginInstance);
 
                   unlock();
                 });
@@ -177,7 +178,7 @@ class ArchaeClient {
           if (!err) {
             this.mountsMutex.lock(pluginName)
               .then(unlock => {
-                this.mountPlugin(pluginName, err => {
+                this.mountPlugin(plugin, pluginName, err => {
                   if (!err) {
                     cb(null, this.pluginApis[pluginName]);
                   } else {
@@ -215,12 +216,12 @@ class ArchaeClient {
         plugin,
       }, (err, result) => {
         if (!err) {
-          const {pluginName} = result;
+          const {plugin, pluginName} = result;
           const oldPluginApi = this.pluginApis[pluginName];
 
           this.mountsMutex.lock(pluginName)
             .then(unlock => {
-              this.unmountPlugin(pluginName, err => {
+              this.unmountPlugin(plugin, pluginName, err => {
                 if (err) {
                   console.warn(err);
                 }
@@ -358,28 +359,30 @@ class ArchaeClient {
     delete this.plugins[pluginName];
   }
 
-  mountPlugin(plugin, cb) {
-    const existingPluginApi = this.pluginApis[plugin];
+  mountPlugin(plugin, pluginName, cb) {
+    const existingPluginApi = this.pluginApis[pluginName];
 
     if (existingPluginApi !== undefined) {
       cb();
     } else {
-      const moduleRequire = this.plugins[plugin];
+      const moduleRequire = this.plugins[pluginName];
 
       if (moduleRequire) {
         Promise.resolve(_instantiate(moduleRequire, this))
           .then(pluginInstance => {
-            pluginInstance[nameSymbol] = plugin;
-            this.pluginInstances[plugin] = pluginInstance;
+            pluginInstance[pathSymbol] = plugin;
+            pluginInstance[nameSymbol] = pluginName;
+            this.pluginInstances[pluginName] = pluginInstance;
 
             Promise.resolve(pluginInstance.mount())
               .then(pluginApi => {
                 if (typeof pluginApi !== 'object' || pluginApi === null) {
                   pluginApi = {};
                 }
-                pluginApi[nameSymbol] = plugin;
+                pluginApi[pathSymbol] = plugin;
+                pluginApi[nameSymbol] = pluginName;
 
-                this.pluginApis[plugin] = pluginApi;
+                this.pluginApis[pluginName] = pluginApi;
 
                 cb();
               })
@@ -391,9 +394,10 @@ class ArchaeClient {
             cb(err);
           });
       } else {
-        this.pluginInstances[plugin] = null;
-        this.pluginApis[plugin] = {
-          [nameSymbol]: plugin,
+        this.pluginInstances[pluginName] = null;
+        this.pluginApis[pluginName] = {
+          [pathSymbol]: plugin,
+          [nameSymbol]: pluginName,
         };
 
         cb();
@@ -401,7 +405,7 @@ class ArchaeClient {
     }
   }
 
-  unmountPlugin(pluginName, cb) {
+  unmountPlugin(plugin, pluginName, cb) {
     const pluginInstance = this.pluginInstances[pluginName];
 
     if (pluginInstance !== undefined) {
@@ -422,6 +426,10 @@ class ArchaeClient {
 
   getCore() {
     return {};
+  }
+
+  getPath(moduleApi) {
+    return moduleApi ? moduleApi[pathSymbol] : null;
   }
 
   getName(moduleApi) {
