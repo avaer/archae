@@ -28,7 +28,7 @@ const defaultConfig = {
 };
 
 const npmCommands = {
-  install: ['npm', 'install'],
+  install: ['npm', 'install', '--unsafe-perm'],
 };
 const pathSymbol = Symbol();
 const nameSymbol = Symbol();
