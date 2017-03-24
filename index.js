@@ -106,7 +106,7 @@ class ArchaeServer {
 
     const pather = new ArchaePather(dirname, installDirectory);
     this.pather = pather;
-    const hasher = new ArchaeHasher(dirname, dataDirectory, pather);
+    const hasher = new ArchaeHasher(dirname, installDirectory, pather);
     this.hasher = hasher;
     const installer = new ArchaeInstaller(dirname, installDirectory, pather, hasher);
     this.installer = installer;
@@ -890,9 +890,9 @@ class ArchaePather {
 
 const MODULE_HASHES_MUTEX_KEY = 'key';
 class ArchaeHasher {
-  constructor(dirname, dataDirectory, pather) {
+  constructor(dirname, installDirectory, pather) {
     this.dirname = dirname;
-    this.dataDirectory = dataDirectory;
+    this.installDirectory = installDirectory;
     this.pather = pather;
 
     this.moduleHashesMutex = new MultiMutex();
@@ -901,7 +901,7 @@ class ArchaeHasher {
   }
 
   loadModulesHashesJson(cb) {
-    const {dirname, dataDirectory, moduleHashesMutex, modulesHashesJson} = this;
+    const {dirname, installDirectory, moduleHashesMutex, modulesHashesJson} = this;
 
     if (modulesHashesJson !== null) {
       process.nextTick(() => {
@@ -916,10 +916,10 @@ class ArchaeHasher {
             unlock();
           };
 
-          const modulesPath = path.join(dirname, dataDirectory, 'modules');
-          const moduleHashesJsonPath = path.join(modulesPath, 'hashes.json');
+          const cachePath = path.join(dirname, installDirectory, 'cache');
+          const cacheHashesJsonPath = path.join(cachePath, 'hashes.json');
 
-          fs.readFile(moduleHashesJsonPath, 'utf8', (err, s) => {
+          fs.readFile(cacheHashesJsonPath, 'utf8', (err, s) => {
             if (!err) {
               const newModulesHashesJson = JSON.parse(s);
               this.modulesHashesJson = newModulesHashesJson;
@@ -944,7 +944,7 @@ class ArchaeHasher {
   }
 
   saveModulesHashesJson(cb) {
-    const {dirname, dataDirectory, moduleHashesMutex, modulesHashesJson} = this;
+    const {dirname, installDirectory, moduleHashesMutex, modulesHashesJson} = this;
 
     this.loadModulesHashesJson((err, modulesHashesJson) => {
       if (!err) {
@@ -956,13 +956,13 @@ class ArchaeHasher {
               unlock();
             };
 
-            const modulesPath = path.join(dirname, dataDirectory, 'modules');
+            const cachePath = path.join(dirname, installDirectory, 'cache');
 
-            mkdirp(modulesPath, err => {
+            mkdirp(cachePath, err => {
               if (!err) {
-                const moduleHashesJsonPath = path.join(modulesPath, 'hashes.json');
+                const cacheHashesJsonPath = path.join(cachePath, 'hashes.json');
 
-                fs.writeFile(moduleHashesJsonPath, JSON.stringify(modulesHashesJson, null, 2), err => {
+                fs.writeFile(cacheHashesJsonPath, JSON.stringify(modulesHashesJson, null, 2), err => {
                   if (!err) {
                     unlockCb();
                   } else {
