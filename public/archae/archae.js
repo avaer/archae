@@ -557,7 +557,7 @@ class ArchaeClient {
 
 const _instantiate = (o, arg) => {
   if (typeof o === 'function') {
-    if (/^(?:function|class)/.test(o.toString())) {
+    if (/^(?:function|class|constructor)/.test(o.toString())) {
       return new o(arg);
     } else {
       return o(arg);
