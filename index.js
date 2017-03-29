@@ -667,6 +667,12 @@ class ArchaeServer {
       });
 
       wss.on('connection', c => {
+        c.on('error', err => {
+          console.warn(err);
+
+          c.close();
+        });
+
         const {url} = c.upgradeReq;
         if (url === '/archae/ws') {
           console.log('connection open');
