@@ -18,6 +18,7 @@ const fsHasher = require('fs-hasher');
 
 const defaultConfig = {
   hostname: 'archae',
+  altHostnames: [],
   host: null,
   port: 8000,
   publicDirectory: null,
@@ -37,6 +38,7 @@ class ArchaeServer {
   constructor({
     dirname,
     hostname,
+    altHostnames,
     host,
     port,
     publicDirectory,
@@ -58,6 +60,9 @@ class ArchaeServer {
 
     hostname = hostname || defaultConfig.hostname;
     this.hostname = hostname;
+
+    altHostnames = altHostnames || defaultConfig.altHostnames;
+    this.altHostnames = altHostnames;
 
     port = port || defaultConfig.port;
     this.port = port;
@@ -124,7 +129,7 @@ class ArchaeServer {
   }
 
   loadCerts() {
-    const {dirname, hostname, cryptoDirectory} = this;
+    const {dirname, hostname, altHostnames, cryptoDirectory} = this;
 
     const _getOldCerts = () => {
       const _getCertFile = fileName => {
@@ -156,6 +161,7 @@ class ArchaeServer {
       const privateKey = keys.privateKey;
       const cert = cryptoutils.generateCert(keys, {
         commonName: hostname,
+        subjectAltNames: altHostnames,
       });
 
       const certDirectory = path.join(dirname, cryptoDirectory, 'cert');
