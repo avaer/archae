@@ -622,11 +622,31 @@ class ArchaeServer {
 
       // archae bundles
       const bundleCache = {};
-      app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+?)(-worker)?\.js$/, (req, res, next) => {
+      const _requestBundle = ({module, build = null}) => rollup.rollup({
+        entry: path.join(dirname, installDirectory, 'plugins', 'node_modules', module, (build ? build : 'client') + '.js'),
+        plugins: [
+          rollupPluginNodeResolve({
+            main: true,
+            preferBuiltins: false,
+          }),
+          rollupPluginCommonJs(),
+          rollupPluginJson(),
+        ],
+      })
+        .then(bundle => {
+          const result = bundle.generate({
+            moduleName: module,
+            format: 'cjs',
+            useStrict: false,
+          });
+          const {code} = result;
+          const wrappedCode = '(function() {\n' + code + '\n})();\n';
+          return wrappedCode;
+        });
+      app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+)\.js$/, (req, res, next) => {
         const {params} = req;
         const module = params[0];
         const target = params[1];
-        const worker = params[2];
 
         if (module === target) {
           const _respondOk = s => {
@@ -634,41 +654,61 @@ class ArchaeServer {
             res.send(s);
           };
 
-          const key = module + (!worker ? '-client' : '-worker');
+          const key = module + ':client';
           const entry = bundleCache[key];
           if (entry !== undefined) {
             _respondOk(entry);
           } else {
-            rollup.rollup({
-              entry: path.join(dirname, installDirectory, 'plugins', 'node_modules',  module, (!worker ? 'client' : 'worker') + '.js'),
-              plugins: [
-                rollupPluginNodeResolve({
-                  main: true,
-                  preferBuiltins: false,
-                }),
-                rollupPluginCommonJs(),
-                rollupPluginJson(),
-              ],
-            }).then(bundle => {
-              const result = bundle.generate({
-                moduleName: module,
-                format: 'cjs',
-                useStrict: false,
-              });
-              const {code} = result;
-              const wrappedCode = '(function() {\n' + code + '\n})();\n';
-
-              bundleCache[key] = wrappedCode;
-
-              _respondOk(wrappedCode);
+            _requestBundle({
+              module,
             })
-            .catch(err => {
-              res.status(500);
-              res.send(err.stack);
-            });
+              .then(code => {
+                bundleCache[key] = code;
+
+                _respondOk(code);
+              })
+              .catch(err => {
+                res.status(500);
+                res.send(err.stack);
+              });
           }
         } else {
           next();
+        }
+      });
+      app.get(/^\/archae\/plugins\/([^\/]+?)\/build\/(.+)\.js$/, (req, res, next) => {
+        const {params} = req;
+        const module = params[0];
+        const build = params[1];
+
+        if (!/\.\./.test(build)) {
+          const _respondOk = s => {
+            res.type('application/javascript');
+            res.send(s);
+          };
+
+          const key = module + ':build:' + build;
+          const entry = bundleCache[key];
+          if (entry !== undefined) {
+            _respondOk(entry);
+          } else {
+            _requestBundle({
+              module,
+              build,
+            })
+              .then(code => {
+                bundleCache[key] = code;
+
+                _respondOk(code);
+              })
+              .catch(err => {
+                res.status(500);
+                res.send(err.stack);
+              });
+          }
+        } else {
+          res.status(400);
+          res.send();
         }
       });
 
