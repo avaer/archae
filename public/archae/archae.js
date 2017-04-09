@@ -1,3 +1,5 @@
+const RECONNECT_TIMEOUT = 2 * 1000;
+
 // begin inline
 
 class MultiMutex {
@@ -85,8 +87,14 @@ class ArchaeClient {
     this.loadsMutex = new MultiMutex();
     this.mountsMutex = new MultiMutex();
 
+    this._connection = null;
+    this._lastConnectTime = -Infinity;
+    this._reconnectTimeout = null;
+    this._queue = [];
+    this._messageListeners = [];
+    this._listeners = {};
+
     this.connect();
-    this.listen();
   }
 
   requestPlugin(plugin) {
@@ -421,15 +429,45 @@ class ArchaeClient {
     const connection = (() => {
       const result = new WebSocket('wss://' + location.host + '/archae/ws');
       result.onopen = () => {
+        console.log('connection opened');
+
+        this._connection = connection;
+
         if (this._queue.length > 0) {
           for (let i = 0; i < this._queue.length; i++) {
             this.send(this._queue[i]);
           }
-          this._queue = [];
+          this._queue.length = 0;
         }
+      };
+      const _cleanup = () => {
+        if (this._connection === connection) {
+          if (this._messageListeners.length > 0) {
+            const globalErrorMessage = {
+              globalError: new Error('connection closed'),
+            };
+            for (let i = 0; i < this._messageListeners.length; i++) {
+              const listener = this._messageListeners[i];
+              listener(globalErrorMessage);
+            }
+          }
+
+          this._connection = null;
+        }
+      };
+      result.onclose = () => {
+        console.log('connection closed');
+
+        _cleanup();
+
+        this.reconnect();
       };
       result.onerror = err => {
         console.warn(err);
+
+        _cleanup();
+
+        this.reconnect();
       };
       result.onmessage = msg => {
         const m = JSON.parse(msg.data);
@@ -441,17 +479,37 @@ class ArchaeClient {
       };
       return result;
     })();
+    this._lastConnectTime = Date.now();
 
-    this._connection = connection;
-    this._queue = [];
-    this._messageListeners = [];
-    this._listeners = {};
+    this.onceMessageType('init', (err, result) => {
+      if (!err) {
+        const {metadata} = result;
+
+        this.metadata = metadata;
+      } else {
+        console.warn(err);
+      }
+    });
   }
 
-  listen() {
-    this.onMessage('init', ({metadata}) => {
-      this.metadata = metadata;
-    });
+  reconnect() {
+    if (this._reconnectTimeout) {
+      clearTimeout(this._reconnectTimeout);
+    }
+
+    const {_lastConnectTime: lastConnectTime} = this;
+    const now = Date.now();
+    const timeDiff = now - lastConnectTime;
+
+    if (timeDiff > RECONNECT_TIMEOUT) {
+      this.connect();
+    } else {
+      this._reconnectTimeout = setTimeout(() => {
+        clearTimeout(this._reconnectTimeout);
+
+        this.reconnect();
+      }, RECONNECT_TIMEOUT - timeDiff);
+    }
   }
 
   request(method, args, cb) {
@@ -473,25 +531,36 @@ class ArchaeClient {
   }
 
   send(o) {
-    if (this._connection.readyState === 1) {
+    if (this._connection && this._connection.readyState === WebSocket.OPEN) {
       this._connection.send(JSON.stringify(o));
     } else {
       this._queue.push(o);
     }
   }
 
-  onMessage(type, handler) {
-    this._messageListeners.push(m => {
+  onceMessageType(type, handler) {
+    const listener = m => {
       if (m.type === type) {
-        handler(m);
+        handler(m.error, m.result);
+
+        this._messageListeners.splice(this._messageListeners.indexOf(listener), 1);
+      } else if (m.globalError) {
+        handler(m.globalError);
+
+        this._messageListeners.splice(this._messageListeners.indexOf(listener), 1);
       }
-    });
+    };
+    this._messageListeners.push(listener);
   }
 
   onceMessageId(id, handler) {
     const listener = m => {
       if (m.id === id) {
         handler(m.error, m.result);
+
+        this._messageListeners.splice(this._messageListeners.indexOf(listener), 1);
+      } else if (m.globalError) {
+        handler(m.globalError);
 
         this._messageListeners.splice(this._messageListeners.indexOf(listener), 1);
       }

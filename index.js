@@ -727,7 +727,10 @@ class ArchaeServer {
 
           const e = {
             type: 'init',
-            metadata,
+            error: null,
+            result: {
+              metadata,
+            },
           };
           const es = JSON.stringify(e);
           c.send(es);
