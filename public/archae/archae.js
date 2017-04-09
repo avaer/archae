@@ -1,4 +1,5 @@
-const RECONNECT_TIMEOUT = 2 * 1000;
+const RECONNECT_MIN_TIMEOUT = 2;
+const RECONNECT_MAX_TIMEOUT = 30;
 
 // begin inline
 
@@ -89,6 +90,7 @@ class ArchaeClient {
 
     this._connection = null;
     this._lastConnectTime = -Infinity;
+    this._numReconnects = 0;
     this._reconnectTimeout = null;
     this._queue = [];
     this._messageListeners = [];
@@ -432,6 +434,7 @@ class ArchaeClient {
         console.log('connection opened');
 
         this._connection = connection;
+        this._numReconnects = 0;
 
         if (this._queue.length > 0) {
           for (let i = 0; i < this._queue.length; i++) {
@@ -456,7 +459,9 @@ class ArchaeClient {
         }
       };
       result.onclose = () => {
-        console.log('connection closed');
+        if (this._connection === connection) {
+          console.log('connection closed');
+        }
 
         _cleanup();
 
@@ -464,10 +469,6 @@ class ArchaeClient {
       };
       result.onerror = err => {
         console.warn(err);
-
-        _cleanup();
-
-        this.reconnect();
       };
       result.onmessage = msg => {
         const m = JSON.parse(msg.data);
@@ -497,18 +498,21 @@ class ArchaeClient {
       clearTimeout(this._reconnectTimeout);
     }
 
-    const {_lastConnectTime: lastConnectTime} = this;
+    const {_lastConnectTime: lastConnectTime, _numReconnects: numReconnects} = this;
     const now = Date.now();
     const timeDiff = now - lastConnectTime;
+    const reconnectTimeout = Math.min(Math.pow(RECONNECT_MIN_TIMEOUT, numReconnects), RECONNECT_MAX_TIMEOUT) * 1000;
 
-    if (timeDiff > RECONNECT_TIMEOUT) {
+    this._numReconnects++;
+
+    if (timeDiff > reconnectTimeout) {
       this.connect();
     } else {
       this._reconnectTimeout = setTimeout(() => {
-        clearTimeout(this._reconnectTimeout);
+        this._reconnectTimeout = null;
 
-        this.reconnect();
-      }, RECONNECT_TIMEOUT - timeDiff);
+        this.connect();
+      }, reconnectTimeout - timeDiff);
     }
   }
 
