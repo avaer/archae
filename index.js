@@ -122,8 +122,6 @@ class ArchaeServer {
     this.installsMutex = new MultiMutex();
     this.loadsMutex = new MultiMutex();
     this.mountsMutex = new MultiMutex();
-
-    this.mountApp();
   }
 
   loadCerts() {
@@ -870,34 +868,44 @@ class ArchaeServer {
   }
 
   listen(cb) {
-    if (!this.server) {
-      this.server = this.getServer();
-    }
-    if (!this.wss) {
-      this.wss = this.getWss();
-    }
-
-    const {host, port, server} = this;
-
-    const listening = () => {
-      cb();
-
-      _cleanup();
+    const _ensureServers = () => {
+      if (!this.server) {
+        this.server = this.getServer();
+      }
+      if (!this.wss) {
+        this.wss = this.getWss();
+      }
     };
-    const error = err => {
-      cb(err);
+    const _mountApp = () => {
+      this.mountApp();
+    };
+    const _listen = cb => {
+      const {host, port, server} = this;
 
-      _cleanup();
+      const listening = () => {
+        cb();
+
+        _cleanup();
+      };
+      const error = err => {
+        cb(err);
+
+        _cleanup();
+      };
+
+      const _cleanup = () => {
+        server.removeListener('listening', listening);
+        server.removeListener('error', error);
+      };
+
+      server.listen(port, host);
+      server.on('listening', listening);
+      server.on('error', error);
     };
 
-    const _cleanup = () => {
-      server.removeListener('listening', listening);
-      server.removeListener('error', error);
-    };
-
-    server.listen(port, host);
-    server.on('listening', listening);
-    server.on('error', error);
+    _ensureServers();
+    _mountApp();
+    _listen(cb);
   }
 }
 
