@@ -82,7 +82,7 @@ class ArchaeServer {
     metadata = metadata || defaultConfig.metadata;
     this.metadata = metadata;
 
-    server = server ||this.getServer();
+    server = server || this.getServer();
     this.server = server;
 
     app = app || express();
