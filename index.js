@@ -38,7 +38,6 @@ class ArchaeServer {
   constructor({
     dirname,
     hostname,
-    altHostnames,
     host,
     port,
     publicDirectory,
@@ -49,6 +48,7 @@ class ArchaeServer {
     server,
     app,
     wss,
+    generateCerts,
     locked,
     whitelist,
     cors,
@@ -60,9 +60,6 @@ class ArchaeServer {
 
     hostname = hostname || defaultConfig.hostname;
     this.hostname = hostname;
-
-    altHostnames = altHostnames || defaultConfig.altHostnames;
-    this.altHostnames = altHostnames;
 
     port = port || defaultConfig.port;
     this.port = port;
@@ -90,6 +87,9 @@ class ArchaeServer {
 
     wss = wss || null;
     this.wss = wss;
+
+    generateCerts = generateCerts || false;
+    this.generateCerts = generateCerts;
 
     locked = locked || false;
     this.locked = locked;
@@ -125,7 +125,7 @@ class ArchaeServer {
   }
 
   loadCerts() {
-    const {dirname, hostname, altHostnames, cryptoDirectory} = this;
+    const {dirname, hostname, cryptoDirectory, generateCerts} = this;
 
     const _getOldCerts = () => {
       const _getCertFile = fileName => {
@@ -152,31 +152,32 @@ class ArchaeServer {
     };
 
     const _getNewCerts = () => {
-      const keys = cryptoutils.generateKeys();
-      const publicKey = keys.publicKey;
-      const privateKey = keys.privateKey;
-      const cert = cryptoutils.generateCert(keys, {
-        commonName: hostname,
-        subjectAltNames: altHostnames,
-      });
+      if (generateCerts) {
+        const keys = cryptoutils.generateKeys();
+        const cert = cryptoutils.generateCert(keys, {
+          commonName: hostname,
+        });
 
-      const certDirectory = path.join(dirname, cryptoDirectory, 'cert');
-      const _makeCertDirectory = () => {
-        mkdirp.sync(certDirectory);
-      };
-      const _setCertFile = (fileName, fileData) => {
-        fs.writeFileSync(path.join(certDirectory, fileName), fileData);
-      };
+        const certDirectory = path.join(dirname, cryptoDirectory, 'cert');
+        const _makeCertDirectory = () => {
+          mkdirp.sync(certDirectory);
+        };
+        const _setCertFile = (fileName, fileData) => {
+          fs.writeFileSync(path.join(certDirectory, fileName), fileData);
+        };
 
-      _makeCertDirectory();
-      _setCertFile('public.pem', publicKey);
-      _setCertFile('private.pem', privateKey);
-      _setCertFile('cert.pem', cert);
+        _makeCertDirectory();
+        _setCertFile('public.pem', keys.publicKey);
+        _setCertFile('private.pem', keys.privateKey);
+        _setCertFile('cert.pem', cert);
 
-      return {
-        privateKey,
-        cert,
-      };
+        return {
+          privateKey,
+          cert,
+        };
+      } else {
+        return null;
+      }
     };
 
     return _getOldCerts() || _getNewCerts();
@@ -185,10 +186,14 @@ class ArchaeServer {
   getServer() {
     const certs = this.loadCerts();
 
-    return spdy.createServer({
-      cert: certs.cert,
-      key: certs.privateKey,
-    });
+    if (certs) {
+      return spdy.createServer({
+        cert: certs.cert,
+        key: certs.privateKey,
+      });
+    } else {
+      return null;
+    }
   }
 
   getWss() {
@@ -868,27 +873,46 @@ class ArchaeServer {
   }
 
   listen(cb) {
-    const _ensureServers = () => {
-      if (!this.server) {
-        this.server = this.getServer();
-      }
-      if (!this.wss) {
-        this.wss = this.getWss();
-      }
-    };
+    const _ensureServers = () => Promise.all([
+      new Promise((accept, reject) => {
+        if (!this.server) {
+          const server = this.getServer();
+
+          if (server) {
+            this.server = server;
+
+            accept();
+          } else {
+            const err = new Error('could not generate server due to missing crypto certificates and no generateCerts flag');
+            reject(err);
+          }
+        } else {
+          accept();
+        }
+      }),
+      new Promise((accept, reject) => {
+        if (!this.wss) {
+          this.wss = this.getWss();
+        }
+
+        accept();
+      }),
+    ]);
     const _mountApp = () => {
       this.mountApp();
+
+      return Promise.resolve();
     };
-    const _listen = cb => {
+    const _listen = () => new Promise((accept, reject) => {
       const {host, port, server} = this;
 
       const listening = () => {
-        cb();
+        accept();
 
         _cleanup();
       };
       const error = err => {
-        cb(err);
+        reject(err);
 
         _cleanup();
       };
@@ -901,11 +925,17 @@ class ArchaeServer {
       server.listen(port, host);
       server.on('listening', listening);
       server.on('error', error);
-    };
+    });
 
-    _ensureServers();
-    _mountApp();
-    _listen(cb);
+    _ensureServers()
+      .then(() => _mountApp())
+      .then(() => _listen())
+      .then(() => {
+        cb();
+      })
+      .catch(err => {
+        cb(err);
+      });
   }
 }
 
