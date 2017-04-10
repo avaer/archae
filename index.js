@@ -88,9 +88,7 @@ class ArchaeServer {
     app = app || express();
     this.app = app;
 
-    wss = wss || new ws.Server({
-      noServer: true,
-    });
+    wss = wss || this.getWss();
     this.wss = wss;
 
     locked = locked || false;
@@ -192,6 +190,12 @@ class ArchaeServer {
     return spdy.createServer({
       cert: certs.cert,
       key: certs.privateKey,
+    });
+  }
+
+  getWss() {
+    return new ws.Server({
+      noServer: true,
     });
   }
 
