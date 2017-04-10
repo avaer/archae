@@ -82,13 +82,13 @@ class ArchaeServer {
     metadata = metadata || defaultConfig.metadata;
     this.metadata = metadata;
 
-    server = server || this.getServer();
+    server = server || null;
     this.server = server;
 
     app = app || express();
     this.app = app;
 
-    wss = wss || this.getWss();
+    wss = wss || null;
     this.wss = wss;
 
     locked = locked || false;
@@ -870,6 +870,13 @@ class ArchaeServer {
   }
 
   listen(cb) {
+    if (!this.server) {
+      this.server = this.getServer();
+    }
+    if (!this.wss) {
+      this.wss = this.getWss();
+    }
+
     const {host, port, server} = this;
 
     const listening = () => {
