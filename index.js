@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const https = require('https');
 const child_process = require('child_process');
 
@@ -21,6 +22,7 @@ const defaultConfig = {
   altHostnames: [],
   host: null,
   port: 8000,
+  secure: false,
   publicDirectory: null,
   dataDirectory: 'data',
   cryptoDirectory: 'crypto',
@@ -40,6 +42,7 @@ class ArchaeServer {
     hostname,
     host,
     port,
+    secure,
     publicDirectory,
     dataDirectory,
     cryptoDirectory,
@@ -63,6 +66,9 @@ class ArchaeServer {
 
     port = port || defaultConfig.port;
     this.port = port;
+
+    secure = (typeof secure === 'boolean') ? secure : defaultConfig.secure;
+    this.secure = secure;
 
     publicDirectory = publicDirectory || defaultConfig.publicDirectory;
     this.publicDirectory = publicDirectory;
@@ -184,15 +190,21 @@ class ArchaeServer {
   }
 
   getServer() {
-    const certs = this.loadCerts();
+    const {secure} = this;
 
-    if (certs) {
-      return spdy.createServer({
-        cert: certs.cert,
-        key: certs.privateKey,
-      });
+    if (!secure) {
+      return http.createServer();
     } else {
-      return null;
+      const certs = this.loadCerts();
+
+      if (certs) {
+        return spdy.createServer({
+          cert: certs.cert,
+          key: certs.privateKey,
+        });
+      } else {
+        return null;
+      }
     }
   }
 
