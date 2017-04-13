@@ -597,31 +597,36 @@ class ArchaeServer {
       app.use('/', express.static(path.join(dirname, publicDirectory)));
     }
 
-    const upgradeHandlers = [];
-    server.addUpgradeHandler = upgradeHandler => {
-      upgradeHandlers.push(upgradeHandler);
-    };
-    server.removeUpgradeHandler = upgradeHandler => {
-      upgradeHandlers.splice(upgradeHandlers.indexOf(upgradeHandler), 1);
-    };
-    server.on('upgrade', (req, socket, head) => {
-      let handled = false;
-      for (let i = 0; i < upgradeHandlers.length; i++) {
-        const upgradeHandler = upgradeHandlers[i];
-        if (upgradeHandler(req, socket, head) === false) {
-          handled = true;
-          break;
-        }
+    class UpgradeEvent {
+      constructor(req, socket, head) {
+        this.req = req;
+        this.socket = socket;
+        this.head = head;
+
+        this._live = true;
       }
 
-      if (!handled) {
-        if (!staticSite) {
+      isLive() {
+        return this._live;
+      }
+
+      stopImmediatePropagation() {
+        this._live = false;
+      }
+    }
+
+    server.on('upgrade', (req, socket, head) => {
+      if (!staticSite) {
+        const upgradeEvent = new UpgradeEvent(req, socket, head);
+        wss.emit('upgrade', upgradeEvent);
+
+        if (upgradeEvent.isLive()) {
           wss.handleUpgrade(req, socket, head, c => {
             wss.emit('connection', c);
           });
-        } else {
-          socket.destroy();
         }
+      } else {
+        socket.destroy();
       }
     });
 
