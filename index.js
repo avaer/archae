@@ -1,3 +1,5 @@
+const events = require('events');
+const {EventEmitter} = events;
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -36,7 +38,7 @@ const npmCommands = {
 const pathSymbol = Symbol();
 const nameSymbol = Symbol();
 
-class ArchaeServer {
+class ArchaeServer extends EventEmitter {
   constructor({
     dirname,
     hostname,
@@ -58,6 +60,8 @@ class ArchaeServer {
     corsOrigin,
     staticSite,
   } = {}) {
+    super();
+
     dirname = dirname || process.cwd();
     this.dirname = dirname;
 
@@ -948,6 +952,8 @@ class ArchaeServer {
       .then(() => _mountApp())
       .then(() => _listen())
       .then(() => {
+        this.emit('listen');
+
         cb();
       })
       .catch(err => {
