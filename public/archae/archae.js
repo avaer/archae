@@ -271,7 +271,7 @@ class ArchaeClient {
       const result = [];
       const moduleName = moduleInstance[nameSymbol];
       for (let i = 0; i < count; i++) {
-        const worker = new Worker('/archae/worker.js');
+        const worker = new Worker('archae/worker.js');
         worker.postMessage({
           method: 'init',
           args: [ 'plugins', moduleName, moduleName + '-worker' ],
@@ -332,7 +332,7 @@ class ArchaeClient {
     } else {
       window.module = {};
 
-      _loadScript('/archae/plugins/' + plugin + '/' + plugin + '.js')
+      _loadScript('archae/plugins/' + plugin + '/' + plugin + '.js')
         .then(() => {
           this.plugins[plugin] = window.module.exports;
 
