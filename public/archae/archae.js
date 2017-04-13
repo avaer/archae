@@ -429,7 +429,7 @@ class ArchaeClient {
 
   connect() {
     const connection = (() => {
-      const result = new WebSocket('wss://' + location.host + '/archae/ws');
+      const result = new WebSocket(_relativeUrl('archae/ws'));
       result.onopen = () => {
         console.log('connection opened');
 
@@ -608,6 +608,11 @@ class ArchaeClient {
     }
   }
 }
+
+const _relativeUrl = s => {
+  const l = window.location;
+  return ((l.protocol === 'https:') ? 'wss://' : 'ws://') + l.host + l.pathname + s;
+};
 
 const _instantiate = (o, arg) => {
   if (typeof o === 'function') {
