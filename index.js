@@ -9,6 +9,7 @@ const child_process = require('child_process');
 const spdy = require('spdy');
 const express = require('express');
 const ws = require('ws');
+const etag = require('etag');
 const mkdirp = require('mkdirp');
 const rimraf = require('rimraf');
 const rollup = require('rollup');
@@ -116,6 +117,8 @@ class ArchaeServer extends EventEmitter {
 
     staticSite = staticSite || false;
     this.staticSite = staticSite;
+
+    this.publicBundlePromise = null;
 
     const pather = new ArchaePather(dirname, installDirectory);
     this.pather = pather;
@@ -636,7 +639,18 @@ class ArchaeServer extends EventEmitter {
 
     if (!staticSite) {
       // archae public
-      app.use('/', express.static(path.join(__dirname, 'public')));
+      app.get('/archae/archae.js', (req, res, next) => {
+        this.publicBundlePromise
+          .then(codeObject => {
+            res.type('application/javascript');
+            res.setHeader('ETag', codeObject.etag)
+            res.send(String(codeObject));
+          })
+          .catch(err => {
+            res.status(500);
+            res.send(err.stack);
+          });
+      });
 
       // archae lists
       app.use('/archae/plugins.json', (req, res, next) => {
@@ -650,27 +664,8 @@ class ArchaeServer extends EventEmitter {
 
       // archae bundles
       const bundleCache = {};
-      const _requestBundle = ({module, build = null}) => rollup.rollup({
-        entry: path.join(dirname, installDirectory, 'plugins', 'node_modules', module, (build ? build : 'client') + '.js'),
-        plugins: [
-          rollupPluginNodeResolve({
-            main: true,
-            preferBuiltins: false,
-          }),
-          rollupPluginCommonJs(),
-          rollupPluginJson(),
-        ],
-      })
-        .then(bundle => {
-          const result = bundle.generate({
-            moduleName: module,
-            format: 'cjs',
-            useStrict: false,
-          });
-          const {code} = result;
-          const wrappedCode = '(function() {\n' + code + '\n})();\n';
-          return wrappedCode;
-        });
+      const _requestModuleRollup = ({module, build = null}) =>
+        _requestRollup(path.join(dirname, installDirectory, 'plugins', 'node_modules', module, (build ? build : 'client') + '.js'));
       app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+)\.js$/, (req, res, next) => {
         const {params} = req;
         const module = params[0];
@@ -687,7 +682,7 @@ class ArchaeServer extends EventEmitter {
           if (entry !== undefined) {
             _respondOk(entry);
           } else {
-            _requestBundle({
+            _requestModuleRollup({
               module,
             })
               .then(code => {
@@ -720,7 +715,7 @@ class ArchaeServer extends EventEmitter {
           if (entry !== undefined) {
             _respondOk(entry);
           } else {
-            _requestBundle({
+            _requestModuleRollup({
               module,
               build,
             })
@@ -894,6 +889,19 @@ class ArchaeServer extends EventEmitter {
   }
 
   listen(cb) {
+    const _ensurePublicBundlePromise = () => {
+      this.publicBundlePromise = _requestRollup(path.join(__dirname, 'lib', 'archae.js'))
+        .then(codeString => {
+          const codeObject = new String(codeString);
+          codeObject.etag = etag(codeString);
+          return Promise.resolve(codeObject);
+        })
+        .catch(err => {
+          console.warn(err);
+        });
+
+      return Promise.resolve();
+    };
     const _ensureServers = () => Promise.all([
       new Promise((accept, reject) => {
         if (!this.server) {
@@ -948,7 +956,8 @@ class ArchaeServer extends EventEmitter {
       server.on('error', error);
     });
 
-    _ensureServers()
+    _ensurePublicBundlePromise()
+      .then(() => _ensureServers())
       .then(() => _mountApp())
       .then(() => _listen())
       .then(() => {
@@ -1448,7 +1457,27 @@ const _instantiate = (o, arg) => {
   }
 };
 // const _uninstantiate = api => (typeof api.unmount === 'function') ? api.unmount() : null;
+const _requestRollup = p => rollup.rollup({
+  entry: p,
+  plugins: [
+    rollupPluginNodeResolve({
+      main: true,
+      preferBuiltins: false,
+    }),
+    rollupPluginCommonJs(),
+    rollupPluginJson(),
+  ],
+})
+  .then(bundle => {
+    const result = bundle.generate({
+      moduleName: module,
+      format: 'cjs',
+      useStrict: false,
+    });
+    const {code} = result;
+    const wrappedCode = '(function() {\n' + code + '\n})();\n';
+    return wrappedCode;
+  });
 
 const archae = opts => new ArchaeServer(opts);
-
 module.exports = archae;

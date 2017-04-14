@@ -10,7 +10,10 @@
     "url": "https://github.com/modulesio/archae.git"
   },
   "dependencies": {
+    "autows": "0.0.1",
     "cryptoutils": "0.0.7",
+    "etag": "^1.8.0",
+    "events": "^1.1.1",
     "express": "^4.14.1",
     "fs-hasher": "0.0.5",
     "mkdirp": "^0.5.1",
