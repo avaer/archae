@@ -736,6 +736,14 @@ class ArchaeServer extends EventEmitter {
       });
 
       wss.on('connection', c => {
+        c.send = (send =>
+          (data, cb = err => {
+            if (err) {
+              console.warn(err);
+            }
+          }) =>
+            send.call(c, data, cb)
+        )(c.send);
         c.on('error', err => {
           console.warn(err);
 
