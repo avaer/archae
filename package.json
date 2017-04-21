@@ -24,6 +24,7 @@
     "rollup-plugin-json": "^2.1.0",
     "rollup-plugin-node-resolve": "^2.0.0",
     "spdy": "git://github.com/anandsuresh/node-spdy.git#fix/agentGoAway",
-    "ws": "^2.1.0"
+    "ws": "^2.1.0",
+    "yarn-zeo": "0.0.1"
   }
 }

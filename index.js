@@ -34,7 +34,7 @@ const defaultConfig = {
 };
 
 const npmCommands = {
-  install: ['npm', 'install', '--production', '--unsafe-perm'],
+  install: [path.join(path.dirname(require.resolve('rollup')), '..', '..', 'yarn-zeo', 'bin', 'yarn'), 'add', '--production', '--no-lockfile'],
 };
 const pathSymbol = Symbol();
 const nameSymbol = Symbol();
@@ -1272,7 +1272,7 @@ class ArchaeInstaller {
         const modulePaths = moduleSpecs.map(moduleSpec => {
           const {module} = moduleSpec;
           if (path.isAbsolute(module)) {
-            return path.join(dirname, module);
+            return 'file:' + path.join(dirname, module);
           } else {
             return module;
           }
