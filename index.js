@@ -261,7 +261,7 @@ class ArchaeServer extends EventEmitter {
         .then(pluginNames => {
           _lockPlugins(this.installsMutex, pluginNames)
             .then(unlock => {
-              installer.addModules(plugins, err => {
+              installer.addModules(plugins, pluginNames, err => {
                 if (!err) {
                   cb(null, pluginNames);
                 } else {
@@ -440,6 +440,10 @@ class ArchaeServer extends EventEmitter {
 
   getPluginClient(plugin, cb) {
     this.getPackageJsonFileName(plugin, 'client', cb);
+  }
+
+  getPluginBuilds(plugin, cb) {
+    this.getPackageJsonFileName(plugin, 'builds', cb);
   }
 
   getLoadedPlugins() {
@@ -660,38 +664,41 @@ class ArchaeServer extends EventEmitter {
       });
 
       // archae bundles
-      const bundleCache = {};
-      const _requestModuleRollup = ({module, build = null}) =>
-        _requestRollup(path.join(dirname, installDirectory, 'plugins', 'node_modules', module, (build ? build : 'client') + '.js'));
+      const _serveJsFile = (req, res, {module, build = null}) => {
+        const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, '.archae', (build ? ('build/' + build) : 'client') + '.js');
+
+        fs.readFile(srcPath, (err, d) => {
+          if (!err) {
+            res.type('application/javascript');
+
+            const et = etag(d);
+
+            if (req.get('If-None-Match') === et) {
+              res.status(304);
+              res.send();
+            } else {
+              res.set('Etag', er);
+              res.send(d);
+            }
+          } else if (err.code === 'ENOENT') {
+            res.status(404);
+            res.send();
+          } else {
+            res.status(500);
+            res.send(err.stack);
+          }
+        });
+      };
+
       app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+)\.js$/, (req, res, next) => {
         const {params} = req;
         const module = params[0];
         const target = params[1];
 
         if (module === target) {
-          const _respondOk = s => {
-            res.type('application/javascript');
-            res.send(s);
-          };
-
-          const key = module + ':client';
-          const entry = bundleCache[key];
-          if (entry !== undefined) {
-            _respondOk(entry);
-          } else {
-            _requestModuleRollup({
-              module,
-            })
-              .then(code => {
-                bundleCache[key] = code;
-
-                _respondOk(code);
-              })
-              .catch(err => {
-                res.status(500);
-                res.send(err.stack);
-              });
-          }
+          _serveJsFile(req, res, {
+            module,
+          });
         } else {
           next();
         }
@@ -702,30 +709,10 @@ class ArchaeServer extends EventEmitter {
         const build = params[1];
 
         if (!/\.\./.test(build)) {
-          const _respondOk = s => {
-            res.type('application/javascript');
-            res.send(s);
-          };
-
-          const key = module + ':build:' + build;
-          const entry = bundleCache[key];
-          if (entry !== undefined) {
-            _respondOk(entry);
-          } else {
-            _requestModuleRollup({
-              module,
-              build,
-            })
-              .then(code => {
-                bundleCache[key] = code;
-
-                _respondOk(code);
-              })
-              .catch(err => {
-                res.status(500);
-                res.send(err.stack);
-              });
-          }
+          _serveJsFile(req, res, {
+            module,
+            build,
+          });
         } else {
           res.status(400);
           res.send();
@@ -804,6 +791,7 @@ class ArchaeServer extends EventEmitter {
                     this.getPluginClient(pluginName, (err, clientFileName) => {
                       if (!err) {
                         const hasClient = Boolean(clientFileName);
+
                         cb(null, {
                           plugin,
                           pluginName,
@@ -1039,7 +1027,7 @@ class ArchaeInstaller {
     this.queue = [];
   }
 
-  addModules(modules, cb) {
+  addModules(modules, moduleNames, cb) {
     const {dirname, installDirectory} = this;
 
     const _npmInstall = (modules, cb) => {
@@ -1076,6 +1064,96 @@ class ArchaeInstaller {
           reject(err);
         });
       });
+      const _build = modules => Promise.all(modules.map((module, index) => {
+        const moduleName = moduleNames[index];
+
+        const _fileExists = p => new Promise((accept, reject) => {
+          fs.lstat(p, err => {
+            if (!err) {
+              accept(false);
+            } else if (err.code === 'ENOENT') {
+              accept(true);
+            } else {
+              reject(err);
+            }
+          });
+        });
+        const _writeFile = (p, d) => new Promise((accept, reject) => {
+          mkdirp(path.dirname(p), err => {
+            if (!err) {
+              fs.writeFile(p, d, err => {
+                if (!err) {
+                  accept();
+                } else {
+                  reject(err);
+                }
+              });
+            } else {
+              reject(err);
+            }
+          });
+        });
+
+        const _buildClient = () => new Promise((accept, reject) => {
+          this.getPluginClient(module, (err, clientFileName) => {
+            if (!err) {
+              if (typeof clientFileName === 'string') {
+                const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, clientFileName + '.js');
+                const dstPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, '.archae', 'client.js');
+
+                _fileExists(dstPath)
+                  .then(exists => {
+                    if (!exists) {
+                      return _requestRollup(srcPath)
+                        .then(code => _writeFile(dstPath, code));
+                    } else {
+                      return Promise.resolve();
+                    }
+                  })
+                  .then(accept)
+                  .catch(reject);
+              } else {
+                accept();
+              }
+            } else {
+              reject(err);
+            }
+          });
+        });
+        const _buildBuilds = () => new Promise((accept, reject) => {
+          this.getPluginBuilds(module, (err, buildFileNames) => {
+            if (!err) {
+              if (Array.isArray(buildFileNames)) {
+                Promise.all(buildFileNames.map(buildFileName => {
+                  const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, buildFileName + '.js');
+                  const dstPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, '.archae', 'build', buildFileName + '.js');
+
+                  return _fileExists(dstPath)
+                    .then(exists => {
+                      if (!exists) {
+                        return _requestRollup(srcPath)
+                          .then(code => _writeFile(dstPath, code));
+                      } else {
+                        return Promise.resolve();
+                      }
+                    });
+                }))
+                  .then(accept)
+                  .catch(reject);
+              } else {
+                accept();
+              }
+            } else {
+              reject(err);
+            }
+          });
+        });
+
+        return Promise.all([
+          _buildClient(),
+          _buildBuilds(),
+        ]);
+      }));
 
       _queue()
         .then(unlock => {
@@ -1086,6 +1164,7 @@ class ArchaeInstaller {
           })(cb);
 
           _install(modules)
+            .then(() => _build(modules))
             .then(() => {
               unlockCb();
             })
