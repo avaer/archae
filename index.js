@@ -1100,6 +1100,15 @@ class ArchaeInstaller {
           }
         });
       });
+      const _removePackageJson = () => new Promise((accept, reject) => {
+        fs.unlink(path.join(dirname, installDirectory, 'plugins', 'package.json'), err => {
+          if (!err || err.code === 'ENOENT') {
+            accept();
+          } else {
+            reject(err);
+          }
+        });
+      });
       const _install = () => new Promise((accept, reject) => {
         const modulePaths = modules.map(module => {
           if (path.isAbsolute(module)) {
@@ -1200,7 +1209,10 @@ class ArchaeInstaller {
             unlock();
           })(cb);
 
-          _ensureNodeModules()
+          Promise.all([
+            _ensureNodeModules(),
+            _removePackageJson(),
+          ])
             .then(() => _install())
             .then(() => _build())
             .then(() => {
