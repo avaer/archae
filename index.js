@@ -424,39 +424,19 @@ class ArchaeServer extends EventEmitter {
     return Promise.all(releasePluginPromises);
   }
 
-  getPackageJsonFileName(plugin, packageJsonFileNameKey, cb) {
-    const {dirname, installDirectory} = this;
-
-    fs.readFile(path.join(dirname, installDirectory, 'plugins', 'node_modules', plugin, 'package.json'), 'utf8', (err, s) => {
-      if (!err) {
-        const j = JSON.parse(s);
-        const fileName = j[packageJsonFileNameKey];
-        cb(null, fileName);
-      } else {
-        cb(err);
-      }
-    });
-  }
-
-  getPluginClient(plugin, cb) {
-    this.getPackageJsonFileName(plugin, 'client', cb);
-  }
-
-  getPluginBuilds(plugin, cb) {
-    this.getPackageJsonFileName(plugin, 'builds', cb);
-  }
-
   getLoadedPlugins() {
     return Object.keys(this.plugins).sort();
   }
 
   loadPlugin(plugin, cb) {
+    const {pather} = this;
+
     const existingPlugin = this.plugins[plugin];
 
     if (existingPlugin !== undefined) {
       cb();
     } else {
-      this.getPackageJsonFileName(plugin, 'server', (err, fileName) => {
+      pather.getPackageJsonFileName(plugin, 'server', (err, fileName) => {
         if (!err) {
           if (fileName) {
             const {dirname, installDirectory} = this;
@@ -586,7 +566,7 @@ class ArchaeServer extends EventEmitter {
   }
 
   mountApp() {
-    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, corsOrigin, staticSite} = this;
+    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, corsOrigin, staticSite, pather} = this;
 
     // cross-origin resoure sharing
     if (cors) {
@@ -788,7 +768,7 @@ class ArchaeServer extends EventEmitter {
                   .then(pluginApi => {
                     const pluginName = this.getName(pluginApi);
 
-                    this.getPluginClient(pluginName, (err, clientFileName) => {
+                    pather.getPluginClient(pluginName, (err, clientFileName) => {
                       if (!err) {
                         const hasClient = Boolean(clientFileName);
 
@@ -813,7 +793,7 @@ class ArchaeServer extends EventEmitter {
                     const plugin = plugins[index];
                     const pluginName = this.getName(pluginApi);
 
-                    this.getPluginClient(pluginName, (err, clientFileName) => {
+                    pather.getPluginClient(pluginName, (err, clientFileName) => {
                       if (!err) {
                         const hasClient = Boolean(clientFileName);
 
@@ -1015,6 +995,28 @@ class ArchaePather {
   getLocalModulePackageJsonPath(module) {
     return path.join(this.getLocalModulePath(module), 'package.json');
   }
+
+  getPackageJsonFileName(plugin, packageJsonFileNameKey, cb) {
+    const {dirname, installDirectory} = this;
+
+    fs.readFile(path.join(dirname, installDirectory, 'plugins', 'node_modules', plugin, 'package.json'), 'utf8', (err, s) => {
+      if (!err) {
+        const j = JSON.parse(s);
+        const fileName = j[packageJsonFileNameKey];
+        cb(null, fileName);
+      } else {
+        cb(err);
+      }
+    });
+  }
+
+  getPluginClient(plugin, cb) {
+    this.getPackageJsonFileName(plugin, 'client', cb);
+  }
+
+  getPluginBuilds(plugin, cb) {
+    this.getPackageJsonFileName(plugin, 'builds', cb);
+  }
 }
 
 class ArchaeInstaller {
@@ -1028,7 +1030,7 @@ class ArchaeInstaller {
   }
 
   addModules(modules, moduleNames, cb) {
-    const {dirname, installDirectory} = this;
+    const {dirname, installDirectory, pather} = this;
 
     const _npmInstall = (modules, cb) => {
       const _queue = () => new Promise((accept, reject) => {
@@ -1070,9 +1072,9 @@ class ArchaeInstaller {
         const _fileExists = p => new Promise((accept, reject) => {
           fs.lstat(p, err => {
             if (!err) {
-              accept(false);
-            } else if (err.code === 'ENOENT') {
               accept(true);
+            } else if (err.code === 'ENOENT') {
+              accept(false);
             } else {
               reject(err);
             }
@@ -1095,11 +1097,11 @@ class ArchaeInstaller {
         });
 
         const _buildClient = () => new Promise((accept, reject) => {
-          this.getPluginClient(module, (err, clientFileName) => {
+          pather.getPluginClient(moduleName, (err, clientFileName) => {
             if (!err) {
               if (typeof clientFileName === 'string') {
-                const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, clientFileName + '.js');
-                const dstPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, '.archae', 'client.js');
+                const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, clientFileName);
+                const dstPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, '.archae', 'client.js');
 
                 _fileExists(dstPath)
                   .then(exists => {
@@ -1121,12 +1123,12 @@ class ArchaeInstaller {
           });
         });
         const _buildBuilds = () => new Promise((accept, reject) => {
-          this.getPluginBuilds(module, (err, buildFileNames) => {
+          pather.getPluginBuilds(moduleName, (err, buildFileNames) => {
             if (!err) {
               if (Array.isArray(buildFileNames)) {
                 Promise.all(buildFileNames.map(buildFileName => {
-                  const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, buildFileName + '.js');
-                  const dstPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, '.archae', 'build', buildFileName + '.js');
+                  const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, buildFileName);
+                  const dstPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, '.archae', 'build', buildFileName);
 
                   return _fileExists(dstPath)
                     .then(exists => {
