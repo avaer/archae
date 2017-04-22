@@ -866,6 +866,13 @@ class ArchaeServer extends EventEmitter {
   }
 
   listen(cb) {
+    const _configureProcess = () => {
+      [process.stdout, process.stderr].forEach(stream => {
+        stream.setMaxListeners(100);
+      });
+
+      return Promise.resolve();
+    };
     const _ensurePublicBundlePromise = () => {
       this.publicBundlePromise = _requestRollup(path.join(__dirname, 'lib', 'archae.js'))
         .then(codeString => {
@@ -933,7 +940,8 @@ class ArchaeServer extends EventEmitter {
       server.on('error', error);
     });
 
-    _ensurePublicBundlePromise()
+    _configureProcess()
+      .then(() => _ensurePublicBundlePromise())
       .then(() => _ensureServers())
       .then(() => _mountApp())
       .then(() => _listen())
