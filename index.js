@@ -1035,17 +1035,6 @@ class ArchaeInstaller {
     const {dirname, installDirectory, pather} = this;
 
     const _getInstalledFlagFilePath = moduleName => path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'installed.txt');
-    const _fileExists = p => new Promise((accept, reject) => {
-      fs.lstat(p, err => {
-        if (!err) {
-          accept(true);
-        } else if (err.code === 'ENOENT') {
-          accept(false);
-        } else {
-          reject(err);
-        }
-      });
-    });
     const _writeFile = (p, d) => new Promise((accept, reject) => {
       mkdirp(path.dirname(p), err => {
         if (!err) {
@@ -1139,15 +1128,8 @@ class ArchaeInstaller {
                   const srcPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, clientFileName);
                   const dstPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'client.js');
 
-                  _fileExists(dstPath)
-                    .then(exists => {
-                      if (!exists) {
-                        return _requestRollup(srcPath)
-                          .then(code => _writeFile(dstPath, code));
-                      } else {
-                        return Promise.resolve();
-                      }
-                    })
+                  return _requestRollup(srcPath)
+                    .then(code => _writeFile(dstPath, code))
                     .then(accept)
                     .catch(reject);
                 } else {
@@ -1166,15 +1148,10 @@ class ArchaeInstaller {
                     const srcPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, buildFileName);
                     const dstPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'build', buildFileName);
 
-                    return _fileExists(dstPath)
-                      .then(exists => {
-                        if (!exists) {
-                          return _requestRollup(srcPath)
-                            .then(code => _writeFile(dstPath, code));
-                        } else {
-                          return Promise.resolve();
-                        }
-                      });
+                    return _requestRollup(srcPath)
+                      .then(code => _writeFile(dstPath, code))
+                      .then(accept)
+                      .catch(reject);
                   }))
                     .then(accept)
                     .catch(reject);
