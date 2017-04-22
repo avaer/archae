@@ -237,7 +237,7 @@ class ArchaeServer extends EventEmitter {
     })));
   }
 
-  installPlugins(plugins) {
+  installPlugins(plugins, {force = false} = {}) {
     return new Promise((accept, reject) => {
       const {installer} = this;
 
@@ -261,7 +261,7 @@ class ArchaeServer extends EventEmitter {
         .then(pluginNames => {
           _lockPlugins(this.installsMutex, pluginNames)
             .then(unlock => {
-              installer.addModules(plugins, pluginNames, err => {
+              installer.addModules(plugins, pluginNames, force, err => {
                 if (!err) {
                   cb(null, pluginNames);
                 } else {
@@ -1029,16 +1029,78 @@ class ArchaeInstaller {
     this.queue = [];
   }
 
-  addModules(modules, moduleNames, cb) {
+  addModules(modules, moduleNames, force, cb) {
     const {dirname, installDirectory, pather} = this;
 
-    const _npmInstall = (modules, cb) => {
+    const _getInstalledFlagFilePath = moduleName => path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, '.archae', 'installed.txt');
+    const _fileExists = p => new Promise((accept, reject) => {
+      fs.lstat(p, err => {
+        if (!err) {
+          accept(true);
+        } else if (err.code === 'ENOENT') {
+          accept(false);
+        } else {
+          reject(err);
+        }
+      });
+    });
+    const _writeFile = (p, d) => new Promise((accept, reject) => {
+      mkdirp(path.dirname(p), err => {
+        if (!err) {
+          fs.writeFile(p, d, err => {
+            if (!err) {
+              accept();
+            } else {
+              reject(err);
+            }
+          });
+        } else {
+          reject(err);
+        }
+      });
+    });
+    const _requestInstallableModules = (modules, moduleNames, force, cb) => {
+      if (force) {
+        cb(null, modules, moduleNames);
+      } else {
+        Promise.all(moduleNames.map(moduleName => new Promise((accept, reject) => {
+          fs.lstat(_getInstalledFlagFilePath(moduleName), err => {
+            if (!err) {
+              accept(true);
+            } else if (err.code === 'ENOENT') {
+              accept(false);
+            } else {
+              reject(err);
+            }
+          });
+        })))
+          .then(modulesExists => {
+            const existingModules = modules.filter((module, index) => !modulesExists[index]);
+            const existingModuleNames = moduleNames.filter((moduleName, index) => !modulesExists[index]);
+
+            cb(null, existingModules, existingModuleNames);
+          })
+          .catch(err => {
+            cb(err);
+          });
+      }
+    };
+    const _npmInstall = (modules, moduleNames, cb) => {
       const _queue = () => new Promise((accept, reject) => {
         this.queueNpm(unlock => {
           accept(unlock);
         });
       });
-      const _install = modules => new Promise((accept, reject) => {
+      const _ensureNodeModules = () => new Promise((accept, reject) => {
+        mkdirp(path.join(dirname, installDirectory, 'plugins', 'node_modules'), err => {
+          if (!err) {
+            accept();
+          } else {
+            reject(err);
+          }
+        });
+      });
+      const _install = () => new Promise((accept, reject) => {
         const modulePaths = modules.map(module => {
           if (path.isAbsolute(module)) {
             return 'file:' + path.join(dirname, module);
@@ -1066,35 +1128,8 @@ class ArchaeInstaller {
           reject(err);
         });
       });
-      const _build = modules => Promise.all(modules.map((module, index) => {
+      const _build = () => Promise.all(modules.map((module, index) => {
         const moduleName = moduleNames[index];
-
-        const _fileExists = p => new Promise((accept, reject) => {
-          fs.lstat(p, err => {
-            if (!err) {
-              accept(true);
-            } else if (err.code === 'ENOENT') {
-              accept(false);
-            } else {
-              reject(err);
-            }
-          });
-        });
-        const _writeFile = (p, d) => new Promise((accept, reject) => {
-          mkdirp(path.dirname(p), err => {
-            if (!err) {
-              fs.writeFile(p, d, err => {
-                if (!err) {
-                  accept();
-                } else {
-                  reject(err);
-                }
-              });
-            } else {
-              reject(err);
-            }
-          });
-        });
 
         const _buildClient = () => new Promise((accept, reject) => {
           pather.getPluginClient(moduleName, (err, clientFileName) => {
@@ -1165,8 +1200,9 @@ class ArchaeInstaller {
             unlock();
           })(cb);
 
-          _install(modules)
-            .then(() => _build(modules))
+          _ensureNodeModules()
+            .then(() => _install())
+            .then(() => _build())
             .then(() => {
               unlockCb();
             })
@@ -1178,16 +1214,35 @@ class ArchaeInstaller {
           cb(err);
         });
     };
-
-    mkdirp(path.join(dirname, installDirectory, 'plugins', 'node_modules'), err => {
-      if (!err) {
-        _npmInstall(modules, err => {
-          if (!err) {
-            cb();
-          } else {
-            cb(err);
-          }
+    const _markInstalledModules = (moduleNames, cb) => {
+      Promise.all(moduleNames.map(moduleName => _writeFile(_getInstalledFlagFilePath(moduleName))))
+        .then(() => {
+          cb();
+        })
+        .catch(err => {
+          cb(err);
         });
+    };
+
+    _requestInstallableModules(modules, moduleNames, force, (err, modules, moduleNames) => {
+      if (!err) {
+        if (modules.length > 0) {
+          _npmInstall(modules, moduleNames, err => {
+            if (!err) {
+              _markInstalledModules(moduleNames, err => {
+                if (!err) {
+                  cb();
+                } else {
+                  cb(err);
+                }
+              });
+            } else {
+              cb(err);
+            }
+          });
+        } else {
+          cb();
+        }
       } else {
         cb(err);
       }
