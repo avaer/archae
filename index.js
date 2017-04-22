@@ -33,7 +33,11 @@ const defaultConfig = {
 };
 
 const npmCommands = {
-  install: [path.join(path.dirname(require.resolve('rollup')), '..', '..', 'yarn-zeo', 'bin', 'yarn'), 'add', '--production', '--no-lockfile'],
+  install: [
+    path.join(path.dirname(require.resolve('rollup')), '..', '..', 'yarn-zeo', 'bin', 'yarn'),
+    'add',
+    '--production',
+  ],
 };
 const pathSymbol = Symbol();
 const nameSymbol = Symbol();
@@ -440,7 +444,7 @@ class ArchaeServer extends EventEmitter {
         if (!err) {
           if (fileName) {
             const {dirname, installDirectory} = this;
-            const moduleRequire = require(path.join(dirname, installDirectory, 'plugins', 'node_modules', plugin, fileName));
+            const moduleRequire = require(path.join(dirname, installDirectory, 'plugins', plugin, 'node_modules', plugin, fileName));
 
             this.plugins[plugin] = moduleRequire;
           } else {
@@ -645,7 +649,7 @@ class ArchaeServer extends EventEmitter {
 
       // archae bundles
       const _serveJsFile = (req, res, {module, build = null}) => {
-        const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', module, '.archae', (build ? ('build/' + build) : 'client') + '.js');
+        const srcPath = path.join(dirname, installDirectory, 'plugins', module, 'node_modules', module, '.archae', (build ? ('build/' + build) : 'client') + '.js');
 
         fs.readFile(srcPath, (err, d) => {
           if (!err) {
@@ -952,9 +956,7 @@ class ArchaePather {
 
   getModuleRealName(module, cb) {
     if (path.isAbsolute(module)) {
-      const packageJsonPath = this.getLocalModulePackageJsonPath(module);
-
-      fs.readFile(packageJsonPath, 'utf8', (err, s) => {
+      fs.readFile(this.getLocalModulePackageJsonPath(module), 'utf8', (err, s) => {
         if (!err) {
           const j = JSON.parse(s);
           const moduleName = j.name;
@@ -980,7 +982,7 @@ class ArchaePather {
 
   getInstalledModulePath(moduleName) {
     const {dirname, installDirectory} = this;
-    return path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName);
+    return path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName);
   }
 
   getLocalModulePath(module) {
@@ -999,7 +1001,7 @@ class ArchaePather {
   getPackageJsonFileName(plugin, packageJsonFileNameKey, cb) {
     const {dirname, installDirectory} = this;
 
-    fs.readFile(path.join(dirname, installDirectory, 'plugins', 'node_modules', plugin, 'package.json'), 'utf8', (err, s) => {
+    fs.readFile(this.getInstalledModulePackageJsonPath(plugin), 'utf8', (err, s) => {
       if (!err) {
         const j = JSON.parse(s);
         const fileName = j[packageJsonFileNameKey];
@@ -1032,7 +1034,7 @@ class ArchaeInstaller {
   addModules(modules, moduleNames, force, cb) {
     const {dirname, installDirectory, pather} = this;
 
-    const _getInstalledFlagFilePath = moduleName => path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, '.archae', 'installed.txt');
+    const _getInstalledFlagFilePath = moduleName => path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'installed.txt');
     const _fileExists = p => new Promise((accept, reject) => {
       fs.lstat(p, err => {
         if (!err) {
@@ -1086,95 +1088,58 @@ class ArchaeInstaller {
       }
     };
     const _npmInstall = (modules, moduleNames, cb) => {
-      const _queue = () => new Promise((accept, reject) => {
-        this.queueNpm(unlock => {
-          accept(unlock);
-        });
-      });
-      const _ensureNodeModules = () => new Promise((accept, reject) => {
-        mkdirp(path.join(dirname, installDirectory, 'plugins', 'node_modules'), err => {
-          if (!err) {
-            accept();
-          } else {
-            reject(err);
-          }
-        });
-      });
-      const _removePackageJson = () => new Promise((accept, reject) => {
-        fs.unlink(path.join(dirname, installDirectory, 'plugins', 'package.json'), err => {
-          if (!err || err.code === 'ENOENT') {
-            accept();
-          } else {
-            reject(err);
-          }
-        });
-      });
-      const _install = () => new Promise((accept, reject) => {
-        const modulePaths = modules.map(module => {
-          if (path.isAbsolute(module)) {
-            return 'file:' + path.join(dirname, module);
-          } else {
-            return module;
-          }
-        });
-        const npmInstall = child_process.spawn(
-          npmCommands.install[0],
-          npmCommands.install.slice(1).concat(modulePaths),
-          {
-            cwd: path.join(dirname, installDirectory, 'plugins'),
-          }
-        );
-        npmInstall.stdout.pipe(process.stdout);
-        npmInstall.stderr.pipe(process.stderr);
-        npmInstall.on('exit', code => {
-          if (code === 0) {
-            accept();
-          } else {
-            reject(new Error('npm install error: ' + code));
-          }
-        });
-        npmInstall.on('error', err => {
-          reject(err);
-        });
-      });
-      const _build = () => Promise.all(modules.map((module, index) => {
+      Promise.all(modules.map((module, index) => {
         const moduleName = moduleNames[index];
 
-        const _buildClient = () => new Promise((accept, reject) => {
-          pather.getPluginClient(moduleName, (err, clientFileName) => {
+        const _ensureNodeModules = (module, moduleName) => new Promise((accept, reject) => {
+          mkdirp(path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules'), err => {
             if (!err) {
-              if (typeof clientFileName === 'string') {
-                const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, clientFileName);
-                const dstPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, '.archae', 'client.js');
-
-                _fileExists(dstPath)
-                  .then(exists => {
-                    if (!exists) {
-                      return _requestRollup(srcPath)
-                        .then(code => _writeFile(dstPath, code));
-                    } else {
-                      return Promise.resolve();
-                    }
-                  })
-                  .then(accept)
-                  .catch(reject);
-              } else {
-                accept();
-              }
+              accept();
             } else {
               reject(err);
             }
           });
         });
-        const _buildBuilds = () => new Promise((accept, reject) => {
-          pather.getPluginBuilds(moduleName, (err, buildFileNames) => {
-            if (!err) {
-              if (Array.isArray(buildFileNames)) {
-                Promise.all(buildFileNames.map(buildFileName => {
-                  const srcPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, buildFileName);
-                  const dstPath = path.join(dirname, installDirectory, 'plugins', 'node_modules', moduleName, '.archae', 'build', buildFileName);
+        const _install = (module, moduleName) => new Promise((accept, reject) => {
+          const modulePath = (() => {
+            if (path.isAbsolute(module)) {
+              return 'file:' + path.join(dirname, module);
+            } else {
+              return module;
+            }
+          })();
+          const npmInstall = child_process.spawn(
+            npmCommands.install[0],
+            npmCommands.install.slice(1).concat([
+              '--cache-folder', path.join(dirname, installDirectory, 'caches', moduleName),
+              modulePath,
+            ]),
+            {
+              cwd: path.join(dirname, installDirectory, 'plugins', moduleName),
+            }
+          );
+          npmInstall.stdout.pipe(process.stdout);
+          npmInstall.stderr.pipe(process.stderr);
+          npmInstall.on('exit', code => {
+            if (code === 0) {
+              accept();
+            } else {
+              reject(new Error('npm install error: ' + code));
+            }
+          });
+          npmInstall.on('error', err => {
+            reject(err);
+          });
+        });
+        const _build = (module, moduleName) => {
+          const _buildClient = () => new Promise((accept, reject) => {
+            pather.getPluginClient(moduleName, (err, clientFileName) => {
+              if (!err) {
+                if (typeof clientFileName === 'string') {
+                  const srcPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, clientFileName);
+                  const dstPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'client.js');
 
-                  return _fileExists(dstPath)
+                  _fileExists(dstPath)
                     .then(exists => {
                       if (!exists) {
                         return _requestRollup(srcPath)
@@ -1182,45 +1147,58 @@ class ArchaeInstaller {
                       } else {
                         return Promise.resolve();
                       }
-                    });
-                }))
-                  .then(accept)
-                  .catch(reject);
+                    })
+                    .then(accept)
+                    .catch(reject);
+                } else {
+                  accept();
+                }
               } else {
-                accept();
+                reject(err);
               }
-            } else {
-              reject(err);
-            }
-          });
-        });
-
-        return Promise.all([
-          _buildClient(),
-          _buildBuilds(),
-        ]);
-      }));
-
-      _queue()
-        .then(unlock => {
-          const unlockCb = (cb => (err, result) => {
-            cb(err, result);
-
-            unlock();
-          })(cb);
-
-          Promise.all([
-            _ensureNodeModules(),
-            _removePackageJson(),
-          ])
-            .then(() => _install())
-            .then(() => _build())
-            .then(() => {
-              unlockCb();
-            })
-            .catch(err => {
-              unlockCb(err);
             });
+          });
+          const _buildBuilds = () => new Promise((accept, reject) => {
+            pather.getPluginBuilds(moduleName, (err, buildFileNames) => {
+              if (!err) {
+                if (Array.isArray(buildFileNames)) {
+                  Promise.all(buildFileNames.map(buildFileName => {
+                    const srcPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, buildFileName);
+                    const dstPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'build', buildFileName);
+
+                    return _fileExists(dstPath)
+                      .then(exists => {
+                        if (!exists) {
+                          return _requestRollup(srcPath)
+                            .then(code => _writeFile(dstPath, code));
+                        } else {
+                          return Promise.resolve();
+                        }
+                      });
+                  }))
+                    .then(accept)
+                    .catch(reject);
+                } else {
+                  accept();
+                }
+              } else {
+                reject(err);
+              }
+            });
+          });
+
+          return Promise.all([
+            _buildClient(),
+            _buildBuilds(),
+          ]);
+        };
+
+        return _ensureNodeModules(module, moduleName)
+          .then(() => _install(module, moduleName))
+          .then(() => _build(module, moduleName));
+      }))
+        .then(() => {
+          cb();
         })
         .catch(err => {
           cb(err);
