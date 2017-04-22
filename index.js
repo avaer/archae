@@ -657,7 +657,7 @@ class ArchaeServer extends EventEmitter {
               res.status(304);
               res.send();
             } else {
-              res.set('Etag', er);
+              res.set('Etag', et);
               res.send(d);
             }
           } else if (err.code === 'ENOENT') {
