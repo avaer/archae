@@ -502,7 +502,7 @@ class ArchaeServer extends EventEmitter {
         });
         stalker.watch(err => {
           if (!err) {
-            console.log('watcher watching', moduleDirectoryPath);
+            console.log('watcher watching', moduleDirectoryPath); // XXX clean this up
           } else {
             console.warn(err);
           }
