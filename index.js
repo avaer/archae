@@ -224,8 +224,8 @@ class ArchaeServer extends EventEmitter {
     });
   }
 
-  requestPlugin(plugin, {force = false} = {}) {
-    return this.requestPlugins([plugin], {force})
+  requestPlugin(plugin, {force = false, hotload = false} = {}) {
+    return this.requestPlugins([plugin], {force, hotload})
       .then(([plugin]) => Promise.resolve(plugin));
   }
 
@@ -287,7 +287,7 @@ class ArchaeServer extends EventEmitter {
     });
   }
 
-  requestPlugins(plugins, {force = false} = {}) {
+  requestPlugins(plugins, {force = false, hotload = false} = {}) {
     return new Promise((accept, reject) => {
       const cb = (err, result) => {
         if (!err) {
@@ -319,7 +319,7 @@ class ArchaeServer extends EventEmitter {
 
         this.loadsMutex.lock(pluginName)
           .then(unlock => {
-            this.watchPlugin(plugin);
+            this.watchPlugin(plugin, {hotload});
 
             this.loadPlugin(pluginName, err => {
               if (!err) {
@@ -483,9 +483,9 @@ class ArchaeServer extends EventEmitter {
     delete this.plugins[pluginName];
   }
 
-  watchPlugin(plugin) {
+  watchPlugin(plugin, {hotload}) {
     const watcher = (() => {
-      if (/^\//.test(plugin)) {
+      if (hotload && /^\//.test(plugin)) {
         const {dirname} = this;
         const moduleDirectoryPath = path.join(dirname, plugin);
         const stalker = watchr.create(moduleDirectoryPath);
@@ -495,6 +495,10 @@ class ArchaeServer extends EventEmitter {
         stalker.watcher.setMaxListeners(1000);
         stalker.on('change', (changeType, fullPath, currentStat, previousStat) => {
           console.log('got change', {changeType, fullPath});
+
+          _broadcast('change', {
+            plugin,
+          });
         });
         stalker.watch(err => {
           if (!err) {
@@ -503,6 +507,21 @@ class ArchaeServer extends EventEmitter {
             console.warn(err);
           }
         });
+
+        const _broadcast = (type, result) => {
+          const e = {
+            type,
+            result,
+          };
+          const es = JSON.stringify(e);
+
+          const {connections} = this;
+          for (let i = 0; i < connections.length; i++) {
+            const connection = connections[i];
+            connection.send(es);
+          }
+        };
+
         return stalker;
       } else {
         return null;
@@ -822,9 +841,9 @@ class ArchaeServer extends EventEmitter {
 
               const {method, args} = m;
               if (method === 'requestPlugin') {
-                const {plugin, force} = args;
+                const {plugin, force, hotload} = args;
 
-                this.requestPlugin(plugin, {force})
+                this.requestPlugin(plugin, {force, hotload})
                   .then(pluginApi => {
                     const pluginName = this.getName(pluginApi);
 
@@ -846,9 +865,9 @@ class ArchaeServer extends EventEmitter {
                     cb(err);
                   });
               } else if (method === 'requestPlugins') {
-                const {plugins, force} = args;
+                const {plugins, force, hotload} = args;
 
-                this.requestPlugins(plugins, {force})
+                this.requestPlugins(plugins, {force, hotload})
                   .then(pluginApis => Promise.all(pluginApis.map((pluginApi, index) => new Promise((accept, reject) => {
                     const plugin = plugins[index];
                     const pluginName = this.getName(pluginApi);
