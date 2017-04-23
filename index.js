@@ -493,12 +493,16 @@ class ArchaeServer extends EventEmitter {
           catchupDelay: 100,
         });
         stalker.watcher.setMaxListeners(1000);
-        stalker.on('change', (changeType, fullPath, currentStat, previousStat) => {
+        const change = (changeType, fullPath, currentStat, previousStat) => {
           console.log('got change', {changeType, fullPath});
 
           _broadcast('change', {
             plugin,
           });
+        };
+        stalker.on('change', change);
+        stalker.once('close', () => {
+          stalker.removeListener('change', change);
         });
         stalker.watch(err => {
           if (!err) {
