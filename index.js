@@ -222,8 +222,8 @@ class ArchaeServer extends EventEmitter {
     });
   }
 
-  requestPlugin(plugin) {
-    return this.requestPlugins([plugin])
+  requestPlugin(plugin, {force = false} = {}) {
+    return this.requestPlugins([plugin], {force})
       .then(([plugin]) => Promise.resolve(plugin));
   }
 
@@ -285,7 +285,7 @@ class ArchaeServer extends EventEmitter {
     });
   }
 
-  requestPlugins(plugins) {
+  requestPlugins(plugins, {force = false} = {}) {
     return new Promise((accept, reject) => {
       const cb = (err, result) => {
         if (!err) {
@@ -299,7 +299,7 @@ class ArchaeServer extends EventEmitter {
         const {locked} = this;
 
         if (!locked) {
-          return this.installPlugins(plugins);
+          return this.installPlugins(plugins, {force});
         } else {
           return this.getModuleRealNames(plugins);
         }
@@ -369,56 +369,33 @@ class ArchaeServer extends EventEmitter {
 
   releasePlugin(plugin) {
     return new Promise((accept, reject) => {
-      const {pather, installer} = this;
-
-      const cb = (err, result) => {
-        if (!err) {
-          accept(result);
-        } else {
-          reject(err);
-        }
-      };
+      const {pather} = this;
 
       if (this.checkWhitelist([plugin])) {
         pather.getModuleRealName(plugin, (err, pluginName) => {
-          this.mountsMutex.lock(pluginName)
-            .then(unlock => {
-              this.unmountPlugin(plugin, pluginName, err => {
-                if (!err) {
-                  this.unloadPlugin(pluginName);
+          if (!err) {
+            this.mountsMutex.lock(pluginName)
+              .then(unlock => new Promise((accept, reject) => {
+                this.unmountPlugin(plugin, pluginName, err => {
+                  if (!err) {
+                    this.unloadPlugin(pluginName);
 
-                  this.installsMutex.lock(pluginName)
-                    .then(unlock => {
-                      installer.removeModule(pluginName, err => {
-                        if (!err) {
-                          cb(null, {
-                            plugin,
-                            pluginName,
-                          });
-                        } else {
-                          cb(err);
-                        }
+                    accept(pluginName);
+                  } else {
+                    reject(err);
+                  }
 
-                        unlock();
-                      });
-                    })
-                    .catch(err => {
-                      cb(err);
-                    });
-                } else {
-                  cb(err);
-                }
-
-                unlock();
-              });
-            })
-            .catch(err => {
-              cb(err);
-            });
+                  unlock();
+                });
+              }))
+              .then(accept)
+              .catch(reject);
+          } else {
+            reject(err);
+          }
         });
       } else {
-        const err = new Error('plugin whitelist violation: ' + JSON.stringify(plugin));
-        cb(err);
+        reject(new Error('plugin whitelist violation: ' + JSON.stringify(plugin)));
       }
     });
   }
@@ -426,6 +403,42 @@ class ArchaeServer extends EventEmitter {
   releasePlugins(plugins) {
     const releasePluginPromises = plugins.map(plugin => this.releasePlugin(plugin));
     return Promise.all(releasePluginPromises);
+  }
+
+  removePlugin(plugin) {
+    return new Promise((accept, reject) => {
+      const {installer} = this;
+
+      if (this.checkWhitelist([plugin])) {
+        this.releasePlugin(plugin)
+          .then(pluginName =>
+            this.installsMutex.lock(pluginName)
+              .then(unlock => new Promise((accept, reject) => {
+                installer.removeModule(pluginName, err => {
+                  if (!err) {
+                    accept({
+                      plugin,
+                      pluginName,
+                    });
+                  } else {
+                    reject(err);
+                  }
+
+                  unlock();
+                });
+              }))
+          )
+          .then(accept)
+          .catch(reject);
+      } else {
+        reject(new Error('plugin whitelist violation: ' + JSON.stringify(plugin)));
+      }
+    });
+  }
+
+  removePlugins(plugins) {
+    const removePluginPromises = plugins.map(plugin => this.removePlugin(plugin));
+    return Promise.all(removePluginPromises);
   }
 
   getLoadedPlugins() {
@@ -766,9 +779,9 @@ class ArchaeServer extends EventEmitter {
 
               const {method, args} = m;
               if (method === 'requestPlugin') {
-                const {plugin} = args;
+                const {plugin, force} = args;
 
-                this.requestPlugin(plugin)
+                this.requestPlugin(plugin, {force})
                   .then(pluginApi => {
                     const pluginName = this.getName(pluginApi);
 
@@ -790,9 +803,9 @@ class ArchaeServer extends EventEmitter {
                     cb(err);
                   });
               } else if (method === 'requestPlugins') {
-                const {plugins} = args;
+                const {plugins, force} = args;
 
-                this.requestPlugins(plugins)
+                this.requestPlugins(plugins, {force})
                   .then(pluginApis => Promise.all(pluginApis.map((pluginApi, index) => new Promise((accept, reject) => {
                     const plugin = plugins[index];
                     const pluginName = this.getName(pluginApi);
@@ -821,20 +834,20 @@ class ArchaeServer extends EventEmitter {
                 const {locked} = this;
 
                 if (!locked) {
-                  if (method === 'releasePlugin') {
+                  if (method === 'removePlugin') {
                     const {plugin} = args;
 
-                    this.releasePlugin(plugin)
+                    this.removePlugin(plugin)
                       .then(result => {
                         cb(null, result);
                       })
                       .catch(err => {
                         cb(err);
                       });
-                  } else if (method === 'releasePlugins') {
+                  } else if (method === 'removePlugins') {
                     const {plugins} = args;
 
-                    this.releasePlugins(plugins)
+                    this.removePlugins(plugins)
                       .then(result => {
                         cb(null, result);
                       })
