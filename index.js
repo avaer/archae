@@ -319,7 +319,7 @@ class ArchaeServer extends EventEmitter {
 
         this.loadsMutex.lock(pluginName)
           .then(unlock => {
-            this.watchPlugin(plugin, {hotload});
+            this.watchPlugin(plugin, pluginName, {hotload});
 
             this.loadPlugin(pluginName, err => {
               if (!err) {
@@ -483,7 +483,7 @@ class ArchaeServer extends EventEmitter {
     delete this.plugins[pluginName];
   }
 
-  watchPlugin(plugin, {hotload}) {
+  watchPlugin(plugin, pluginName, {hotload}) {
     const watcher = (() => {
       if (hotload && /^\//.test(plugin)) {
         const {dirname} = this;
@@ -494,37 +494,29 @@ class ArchaeServer extends EventEmitter {
         });
         stalker.watcher.setMaxListeners(1000);
         const change = (changeType, fullPath, currentStat, previousStat) => {
-          console.log('got change', {changeType, fullPath});
+          this.broadcast('unload', pluginName);
 
-          _broadcast('change', {
-            plugin,
-          });
+          this.removePlugin(plugin)
+            .then(() => {
+              this.broadcast('load', plugin);
+
+              return this.requestPlugin(plugin, {
+                hotload: true,
+              });
+            })
+            .catch(err => {
+              console.warn(err);
+            });
         };
         stalker.on('change', change);
         stalker.once('close', () => {
           stalker.removeListener('change', change);
         });
         stalker.watch(err => {
-          if (!err) {
-            console.log('watcher watching', moduleDirectoryPath); // XXX clean this up
-          } else {
+          if (err) {
             console.warn(err);
           }
         });
-
-        const _broadcast = (type, result) => {
-          const e = {
-            type,
-            result,
-          };
-          const es = JSON.stringify(e);
-
-          const {connections} = this;
-          for (let i = 0; i < connections.length; i++) {
-            const connection = connections[i];
-            connection.send(es);
-          }
-        };
 
         return stalker;
       } else {
@@ -540,6 +532,20 @@ class ArchaeServer extends EventEmitter {
       watcher.close();
     }
     delete this.watchers[plugin];
+  }
+
+  broadcast(type, result) {
+    const e = {
+      type,
+      result,
+    };
+    const es = JSON.stringify(e);
+
+    const {connections} = this;
+    for (let i = 0; i < connections.length; i++) {
+      const connection = connections[i];
+      connection.send(es);
+    }
   }
 
   mountPlugin(plugin, pluginName, cb) {
