@@ -16,6 +16,7 @@ const rollup = require('rollup');
 const rollupPluginNodeResolve = require('rollup-plugin-node-resolve');
 const rollupPluginCommonJs = require('rollup-plugin-commonjs');
 const rollupPluginJson = require('rollup-plugin-json');
+const watchr = require('watchr');
 const cryptoutils = require('cryptoutils');
 const MultiMutex = require('multimutex');
 
@@ -133,6 +134,7 @@ class ArchaeServer extends EventEmitter {
     this.plugins = {};
     this.pluginInstances = {};
     this.pluginApis = {};
+    this.watchers = {};
     this.installsMutex = new MultiMutex();
     this.loadsMutex = new MultiMutex();
     this.mountsMutex = new MultiMutex();
@@ -445,23 +447,42 @@ class ArchaeServer extends EventEmitter {
     return Object.keys(this.plugins).sort();
   }
 
-  loadPlugin(plugin, cb) {
+  loadPlugin(pluginName, cb) {
     const {pather} = this;
 
-    const existingPlugin = this.plugins[plugin];
+    const existingPlugin = this.plugins[pluginName];
 
     if (existingPlugin !== undefined) {
       cb();
     } else {
-      pather.getPackageJsonFileName(plugin, 'server', (err, fileName) => {
+      pather.getPackageJsonFileName(pluginName, 'server', (err, fileName) => {
         if (!err) {
           if (fileName) {
             const {dirname, installDirectory} = this;
-            const moduleRequire = require(path.join(dirname, installDirectory, 'plugins', plugin, 'node_modules', plugin, fileName));
+            const moduleDirectoryPath = path.join(dirname, installDirectory, 'plugins', pluginName, 'node_modules', pluginName);
+            const moduleFilePath = path.join(moduleDirectoryPath, fileName);
+            const moduleRequire = require(moduleFilePath);
 
-            this.plugins[plugin] = moduleRequire;
+            this.plugins[pluginName] = moduleRequire;
+
+            const watcher = (() => {
+              const stalker = watchr.create(moduleDirectoryPath);
+              stalker.on('change', (changeType, fullPath, currentStat, previousStat) => {
+                console.log('got change', {changeType, fullPath});
+              });
+              stalker.watch(err => {
+                if (!err) {
+                  console.log('watcher watching', moduleDirectoryPath);
+                } else {
+                  console.warn(err);
+                }
+              });
+              return stalker;
+            })();
+            this.watchers[pluginName] = watcher;
           } else {
-            this.plugins[plugin] = null;
+            this.plugins[pluginName] = null;
+            this.watchers[pluginName] = null;
           }
 
           cb();
@@ -474,6 +495,12 @@ class ArchaeServer extends EventEmitter {
 
   unloadPlugin(pluginName) {
     delete this.plugins[pluginName];
+
+    const watcher = this.watchers[pluginName];
+    if (watcher) {
+      watcher.close();
+    }
+    delete this.watchers[pluginName];
   }
 
   mountPlugin(plugin, pluginName, cb) {
