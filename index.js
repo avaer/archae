@@ -319,6 +319,8 @@ class ArchaeServer extends EventEmitter {
 
         this.loadsMutex.lock(pluginName)
           .then(unlock => {
+            this.watchPlugin(plugin);
+
             this.loadPlugin(pluginName, err => {
               if (!err) {
                 this.mountsMutex.lock(pluginName)
@@ -381,6 +383,8 @@ class ArchaeServer extends EventEmitter {
                 this.unmountPlugin(plugin, pluginName, err => {
                   if (!err) {
                     this.unloadPlugin(pluginName);
+
+                    this.unwatchPlugin(plugin);
 
                     accept(pluginName);
                   } else {
@@ -459,30 +463,12 @@ class ArchaeServer extends EventEmitter {
         if (!err) {
           if (fileName) {
             const {dirname, installDirectory} = this;
-            const moduleDirectoryPath = path.join(dirname, installDirectory, 'plugins', pluginName, 'node_modules', pluginName);
-            const moduleFilePath = path.join(moduleDirectoryPath, fileName);
-            const moduleRequire = require(moduleFilePath);
+            const modulePath = path.join(dirname, installDirectory, 'plugins', pluginName, 'node_modules', pluginName, fileName);
+            const moduleInstance = require(modulePath);
 
-            this.plugins[pluginName] = moduleRequire;
-
-            const watcher = (() => {
-              const stalker = watchr.create(moduleDirectoryPath);
-              stalker.on('change', (changeType, fullPath, currentStat, previousStat) => {
-                console.log('got change', {changeType, fullPath});
-              });
-              stalker.watch(err => {
-                if (!err) {
-                  console.log('watcher watching', moduleDirectoryPath);
-                } else {
-                  console.warn(err);
-                }
-              });
-              return stalker;
-            })();
-            this.watchers[pluginName] = watcher;
+            this.plugins[pluginName] = moduleInstance;
           } else {
             this.plugins[pluginName] = null;
-            this.watchers[pluginName] = null;
           }
 
           cb();
@@ -495,12 +481,42 @@ class ArchaeServer extends EventEmitter {
 
   unloadPlugin(pluginName) {
     delete this.plugins[pluginName];
+  }
 
-    const watcher = this.watchers[pluginName];
+  watchPlugin(plugin) {
+    const watcher = (() => {
+      if (/^\//.test(plugin)) {
+        const {dirname} = this;
+        const moduleDirectoryPath = path.join(dirname, plugin);
+        const stalker = watchr.create(moduleDirectoryPath);
+        stalker.setConfig({
+          catchupDelay: 100,
+        });
+        stalker.watcher.setMaxListeners(1000);
+        stalker.on('change', (changeType, fullPath, currentStat, previousStat) => {
+          console.log('got change', {changeType, fullPath});
+        });
+        stalker.watch(err => {
+          if (!err) {
+            console.log('watcher watching', moduleDirectoryPath);
+          } else {
+            console.warn(err);
+          }
+        });
+        return stalker;
+      } else {
+        return null;
+      }
+    })();
+    this.watchers[plugin] = watcher;
+  }
+
+  unwatchPlugin(plugin) {
+    const watcher = this.watchers[plugin];
     if (watcher) {
       watcher.close();
     }
-    delete this.watchers[pluginName];
+    delete this.watchers[plugin];
   }
 
   mountPlugin(plugin, pluginName, cb) {
