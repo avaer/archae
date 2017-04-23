@@ -19,9 +19,9 @@
     "multimutex": "0.0.2",
     "rimraf": "^2.6.1",
     "rollup": "^0.41.4",
-    "rollup-plugin-commonjs": "^7.0.0",
+    "rollup-plugin-commonjs": "^8.0.2",
     "rollup-plugin-json": "^2.1.0",
-    "rollup-plugin-node-resolve": "^2.0.0",
+    "rollup-plugin-node-resolve": "^3.0.0",
     "spdy": "git://github.com/anandsuresh/node-spdy.git#fix/agentGoAway",
     "ws": "^2.1.0",
     "yarn-zeo": "0.0.2"
