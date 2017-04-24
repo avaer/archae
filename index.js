@@ -484,46 +484,47 @@ class ArchaeServer extends EventEmitter {
   }
 
   watchPlugin(plugin, pluginName, {hotload}) {
-    const watcher = (() => {
-      if (hotload && /^\//.test(plugin)) {
-        const {dirname} = this;
-        const moduleDirectoryPath = path.join(dirname, plugin);
-        const stalker = watchr.create(moduleDirectoryPath);
-        stalker.setConfig({
-          catchupDelay: 100,
-        });
-        stalker.watcher.setMaxListeners(1000);
-        const change = (changeType, fullPath, currentStat, previousStat) => {
-          this.broadcast('unload', pluginName);
+    if (this.watchers[plugin] === undefined) {
+      const watcher = (() => {
+        if (hotload && /^\//.test(plugin)) {
+          const {dirname} = this;
+          const moduleDirectoryPath = path.join(dirname, plugin);
+          const watcher = new watchr.Watcher(moduleDirectoryPath);
+          watcher.setConfig({
+            catchupDelay: 100,
+          });
+          const change = (/*changeType, fullPath, currentStat, previousStat*/) => {
+            this.broadcast('unload', pluginName);
 
-          this.removePlugin(plugin)
-            .then(() => {
-              this.broadcast('load', plugin);
+            this.removePlugin(plugin)
+              .then(() => {
+                this.broadcast('load', plugin);
 
-              return this.requestPlugin(plugin, {
-                hotload: true,
+                return this.requestPlugin(plugin, {
+                  hotload: true,
+                });
+              })
+              .catch(err => {
+                console.warn(err);
               });
-            })
-            .catch(err => {
+          };
+          watcher.on('change', change);
+          watcher.once('close', () => {
+            watcher.removeListener('change', change);
+          });
+          watcher.watch(err => {
+            if (err) {
               console.warn(err);
-            });
-        };
-        stalker.on('change', change);
-        stalker.once('close', () => {
-          stalker.removeListener('change', change);
-        });
-        stalker.watch(err => {
-          if (err) {
-            console.warn(err);
-          }
-        });
+            }
+          });
 
-        return stalker;
-      } else {
-        return null;
-      }
-    })();
-    this.watchers[plugin] = watcher;
+          return watcher;
+        } else {
+          return null;
+        }
+      })();
+      this.watchers[plugin] = watcher;
+    }
   }
 
   unwatchPlugin(plugin) {
