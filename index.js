@@ -19,6 +19,7 @@ const rollupPluginJson = require('rollup-plugin-json');
 const watchr = require('watchr');
 const cryptoutils = require('cryptoutils');
 const MultiMutex = require('multimutex');
+var bluebird = require('bluebird');
 
 const defaultConfig = {
   hostname: 'archae',
@@ -1163,7 +1164,7 @@ class ArchaeInstaller {
       }
     };
     const _npmInstall = (modules, moduleNames, cb) => {
-      Promise.all(modules.map((module, index) => {
+      bluebird.map(modules, (module, index) => {
         const moduleName = moduleNames[index];
 
         const _ensureNodeModules = (module, moduleName) => new Promise((accept, reject) => {
@@ -1259,7 +1260,7 @@ class ArchaeInstaller {
         return _ensureNodeModules(module, moduleName)
           .then(() => _install(module, moduleName))
           .then(() => _build(module, moduleName));
-      }))
+      }, {concurrency: 1})
         .then(() => {
           cb();
         })
