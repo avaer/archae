@@ -7,9 +7,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/modulesio/archae.git"
+    "url": "https://github.com/toomu/archae.git"
   },
   "dependencies": {
+    "bluebird": "3.5.0",
     "autows": "0.0.5",
     "cryptoutils": "0.0.7",
     "etag": "^1.8.0",
