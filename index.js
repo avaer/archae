@@ -146,7 +146,7 @@ class ArchaeServer extends EventEmitter {
     const _getOldCerts = () => {
       const _getCertFile = fileName => {
         try {
-          return fs.readFileSync(path.join(dirname, cryptoDirectory, 'cert', fileName), 'utf8');
+          return fs.readFileSync(path.join(cryptoDirectory, 'cert', fileName), 'utf8');
         } catch(err) {
           if (err.code !== 'ENOENT') {
             console.warn(err);
@@ -174,7 +174,7 @@ class ArchaeServer extends EventEmitter {
           commonName: hostname,
         });
 
-        const certDirectory = path.join(dirname, cryptoDirectory, 'cert');
+        const certDirectory = path.join(cryptoDirectory, 'cert');
         const _makeCertDirectory = () => {
           mkdirp.sync(certDirectory);
         };
@@ -463,7 +463,7 @@ class ArchaeServer extends EventEmitter {
         if (!err) {
           if (fileName) {
             const {dirname, installDirectory} = this;
-            const modulePath = path.join(dirname, installDirectory, 'plugins', pluginName, 'node_modules', pluginName, fileName);
+            const modulePath = path.join( installDirectory, 'plugins', pluginName, 'node_modules', pluginName, fileName);
             const moduleInstance = require(modulePath);
 
             this.plugins[pluginName] = moduleInstance;
@@ -672,7 +672,7 @@ class ArchaeServer extends EventEmitter {
 
     // user public
     if (publicDirectory) {
-      app.use('/', express.static(path.join(dirname, publicDirectory)));
+      app.use('/', express.static(publicDirectory));
     }
 
     class UpgradeEvent {
@@ -735,7 +735,7 @@ class ArchaeServer extends EventEmitter {
 
       // archae bundles
       const _serveJsFile = (req, res, {module, build = null}) => {
-        const srcPath = path.join(dirname, installDirectory, 'plugins', module, 'node_modules', module, '.archae', (build ? ('build/' + build) : 'client') + '.js');
+          const srcPath = path.join(installDirectory, 'plugins', module, 'node_modules', module, '.archae', (build ? ('build/' + build) : 'client') + '.js');
 
         fs.readFile(srcPath, (err, d) => {
           if (!err) {
@@ -1068,7 +1068,7 @@ class ArchaePather {
 
   getInstalledModulePath(moduleName) {
     const {dirname, installDirectory} = this;
-    return path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName);
+    return path.join( installDirectory, 'plugins', moduleName, 'node_modules', moduleName);
   }
 
   getLocalModulePath(module) {
@@ -1120,7 +1120,7 @@ class ArchaeInstaller {
   addModules(modules, moduleNames, force, cb) {
     const {dirname, installDirectory, pather} = this;
 
-    const _getInstalledFlagFilePath = moduleName => path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'installed.txt');
+    const _getInstalledFlagFilePath = moduleName => path.join(installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'installed.txt');
     const _writeFile = (p, d) => new Promise((accept, reject) => {
       mkdirp(path.dirname(p), err => {
         if (!err) {
@@ -1167,7 +1167,7 @@ class ArchaeInstaller {
         const moduleName = moduleNames[index];
 
         const _ensureNodeModules = (module, moduleName) => new Promise((accept, reject) => {
-          mkdirp(path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules'), err => {
+            mkdirp(path.join( installDirectory, 'plugins', moduleName, 'node_modules'), err => {
             if (!err) {
               accept();
             } else {
@@ -1186,11 +1186,11 @@ class ArchaeInstaller {
           const npmInstall = child_process.spawn(
             npmCommands.install[0],
             npmCommands.install.slice(1).concat([
-              '--cache-folder', path.join(dirname, installDirectory, 'caches', moduleName),
+                '--cache-folder', path.join(installDirectory, 'caches', moduleName),
               modulePath,
             ]),
             {
-              cwd: path.join(dirname, installDirectory, 'plugins', moduleName),
+                cwd: path.join( installDirectory, 'plugins', moduleName),
             }
           );
           npmInstall.stdout.pipe(process.stdout);
@@ -1211,8 +1211,8 @@ class ArchaeInstaller {
             pather.getPluginClient(moduleName, (err, clientFileName) => {
               if (!err) {
                 if (typeof clientFileName === 'string') {
-                  const srcPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, clientFileName);
-                  const dstPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'client.js');
+                    const srcPath = path.join(installDirectory, 'plugins', moduleName, 'node_modules', moduleName, clientFileName);
+                    const dstPath = path.join(installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'client.js');
 
                   return _requestRollup(srcPath)
                     .then(code => _writeFile(dstPath, code))
@@ -1231,8 +1231,8 @@ class ArchaeInstaller {
               if (!err) {
                 if (Array.isArray(buildFileNames)) {
                   Promise.all(buildFileNames.map(buildFileName => {
-                    const srcPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, buildFileName);
-                    const dstPath = path.join(dirname, installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'build', buildFileName);
+                    const srcPath = path.join(installDirectory, 'plugins', moduleName, 'node_modules', moduleName, buildFileName);
+                    const dstPath = path.join( installDirectory, 'plugins', moduleName, 'node_modules', moduleName, '.archae', 'build', buildFileName);
 
                     return _requestRollup(srcPath)
                       .then(code => _writeFile(dstPath, code))

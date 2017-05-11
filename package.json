@@ -7,7 +7,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/modulesio/archae.git"
+    "url": "https://github.com/toomu/archae.git"
   },
   "dependencies": {
     "autows": "0.0.5",
