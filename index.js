@@ -60,7 +60,6 @@ class ArchaeServer extends EventEmitter {
     wss,
     generateCerts,
     locked,
-    whitelist,
     cors,
     corsOrigin,
     staticSite,
@@ -108,10 +107,6 @@ class ArchaeServer extends EventEmitter {
 
     locked = locked || false;
     this.locked = locked;
-
-    this.whitelistIndex = null;
-    whitelist = whitelist || null;
-    this.setWhitelist(whitelist);
 
     cors = cors || false;
     this.cors = cors;
@@ -350,24 +345,19 @@ class ArchaeServer extends EventEmitter {
           });
       })));
 
-      if (this.checkWhitelist(plugins)) {
-        _installPlugins(plugins)
-          .then(pluginNames => {
-            _bootPlugins(pluginNames)
-              .then(pluginApis => {
-                cb(null, pluginApis);
-              })
-              .catch(err => {
-                cb(err);
-              });
-          })
-          .catch(err => {
-            cb(err);
-          });
-      } else {
-        const err = new Error('plugin whitelist violation: ' + JSON.stringify(plugins));
-        cb(err);
-      }
+      _installPlugins(plugins)
+        .then(pluginNames => {
+          _bootPlugins(pluginNames)
+            .then(pluginApis => {
+              cb(null, pluginApis);
+            })
+            .catch(err => {
+              cb(err);
+            });
+        })
+        .catch(err => {
+          cb(err);
+        });
     });
   }
 
@@ -375,34 +365,30 @@ class ArchaeServer extends EventEmitter {
     return new Promise((accept, reject) => {
       const {pather} = this;
 
-      if (this.checkWhitelist([plugin])) {
-        pather.getModuleRealName(plugin, (err, pluginName) => {
-          if (!err) {
-            this.mountsMutex.lock(pluginName)
-              .then(unlock => new Promise((accept, reject) => {
-                this.unmountPlugin(plugin, pluginName, err => {
-                  if (!err) {
-                    this.unloadPlugin(pluginName);
+      pather.getModuleRealName(plugin, (err, pluginName) => {
+        if (!err) {
+          this.mountsMutex.lock(pluginName)
+            .then(unlock => new Promise((accept, reject) => {
+              this.unmountPlugin(plugin, pluginName, err => {
+                if (!err) {
+                  this.unloadPlugin(pluginName);
 
-                    this.unwatchPlugin(plugin);
+                  this.unwatchPlugin(plugin);
 
-                    accept(pluginName);
-                  } else {
-                    reject(err);
-                  }
+                  accept(pluginName);
+                } else {
+                  reject(err);
+                }
 
-                  unlock();
-                });
-              }))
-              .then(accept)
-              .catch(reject);
-          } else {
-            reject(err);
-          }
-        });
-      } else {
-        reject(new Error('plugin whitelist violation: ' + JSON.stringify(plugin)));
-      }
+                unlock();
+              });
+            }))
+            .then(accept)
+            .catch(reject);
+        } else {
+          reject(err);
+        }
+      });
     });
   }
 
@@ -415,30 +401,26 @@ class ArchaeServer extends EventEmitter {
     return new Promise((accept, reject) => {
       const {installer} = this;
 
-      if (this.checkWhitelist([plugin])) {
-        this.releasePlugin(plugin)
-          .then(pluginName =>
-            this.installsMutex.lock(pluginName)
-              .then(unlock => new Promise((accept, reject) => {
-                installer.removeModule(pluginName, err => {
-                  if (!err) {
-                    accept({
-                      plugin,
-                      pluginName,
-                    });
-                  } else {
-                    reject(err);
-                  }
+      this.releasePlugin(plugin)
+        .then(pluginName =>
+          this.installsMutex.lock(pluginName)
+            .then(unlock => new Promise((accept, reject) => {
+              installer.removeModule(pluginName, err => {
+                if (!err) {
+                  accept({
+                    plugin,
+                    pluginName,
+                  });
+                } else {
+                  reject(err);
+                }
 
-                  unlock();
-                });
-              }))
-          )
-          .then(accept)
-          .catch(reject);
-      } else {
-        reject(new Error('plugin whitelist violation: ' + JSON.stringify(plugin)));
-      }
+                unlock();
+              });
+            }))
+        )
+        .then(accept)
+        .catch(reject);
     });
   }
 
@@ -619,20 +601,6 @@ class ArchaeServer extends EventEmitter {
 
   unlock() {
     this.locked = false;
-  }
-
-  checkWhitelist(plugins) {
-    const {whitelistIndex} = this;
-
-    return !whitelistIndex || plugins.every(plugin => whitelistIndex[plugin]);
-  }
-
-  setWhitelist(whitelist) {
-    if (whitelist) {
-      this.whitelistIndex = _makeIndex(whitelist);
-    } else  {
-      this.whitelistIndex = null;
-    }
   }
 
   getCore() {
