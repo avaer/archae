@@ -34,11 +34,25 @@ const defaultConfig = {
 };
 
 const npmCommands = {
-  install: [
-    path.join(path.dirname(require.resolve('rollup')), '..', '..', 'yarn-zeo', 'bin', 'yarn'),
-    'add',
-    '--production',
-  ],
+  install: {
+    cmd: [
+      path.join(path.dirname(require.resolve('rollup')), '..', '..', 'yarn-zeo', 'bin', 'yarn'),
+      'add',
+      '--production',
+    ],
+    env: (() => {
+      const result = {};
+
+      for (const k in process.env) {
+        const v = process.env[k];
+        result[k] = v;
+      }
+
+      result['npm_config_node_gyp'] = require.resolve('node-gyp');
+
+      return result;
+    })(),
+  },
 };
 const pathSymbol = Symbol();
 const nameSymbol = Symbol();
@@ -1152,13 +1166,14 @@ class ArchaeInstaller {
             }
           })();
           const npmInstall = child_process.spawn(
-            npmCommands.install[0],
-            npmCommands.install.slice(1).concat([
+            npmCommands.install.cmd[0],
+            npmCommands.install.cmd.slice(1).concat([
               '--cache-folder', path.join(dirname, installDirectory, 'caches', moduleName),
               modulePath,
             ]),
             {
               cwd: path.join(dirname, installDirectory, 'plugins', moduleName),
+              env: npmCommands.install.env,
             }
           );
           npmInstall.stdout.pipe(process.stdout);
