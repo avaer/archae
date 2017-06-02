@@ -36,22 +36,8 @@ const defaultConfig = {
 const npmCommands = {
   install: {
     cmd: [
-      path.join(path.dirname(require.resolve('rollup')), '..', '..', 'yarn-zeo', 'bin', 'yarn'),
-      'add',
-      '--production',
+      'npm', 'install', '--production', '--no-save'
     ],
-    env: (() => {
-      const result = {};
-
-      for (const k in process.env) {
-        const v = process.env[k];
-        result[k] = v;
-      }
-
-      result['npm_config_node_gyp'] = require.resolve('node-gyp');
-
-      return result;
-    })(),
   },
 };
 const pathSymbol = Symbol();
@@ -144,7 +130,6 @@ class ArchaeServer extends EventEmitter {
     this.pluginInstances = {};
     this.pluginApis = {};
     this.watchers = {};
-    this.installsMutex = new MultiMutex();
     this.loadsMutex = new MultiMutex();
     this.mountsMutex = new MultiMutex();
   }
@@ -264,31 +249,15 @@ class ArchaeServer extends EventEmitter {
         }
       };
 
-      const _lockPlugins = (mutex, pluginNames) => Promise.all(pluginNames.map(pluginName => mutex.lock(pluginName)))
-        .then(unlocks => Promise.resolve(() => {
-          for (let i = 0; i < unlocks.length; i++) {
-            const unlock = unlocks[i];
-            unlock();
-          }
-        }));
-
       this.getModuleRealNames(plugins)
         .then(pluginNames => {
-          _lockPlugins(this.installsMutex, pluginNames)
-            .then(unlock => {
-              installer.addModules(plugins, pluginNames, force, err => {
-                if (!err) {
-                  cb(null, pluginNames);
-                } else {
-                  cb(err);
-                }
-
-                unlock();
-              });
-            })
-            .catch(err => {
+          installer.addModules(plugins, pluginNames, force, err => {
+            if (!err) {
+              cb(null, pluginNames);
+            } else {
               cb(err);
-            });
+            }
+          });
         })
         .catch(err => {
           cb(err);
@@ -416,23 +385,18 @@ class ArchaeServer extends EventEmitter {
       const {installer} = this;
 
       this.releasePlugin(plugin)
-        .then(pluginName =>
-          this.installsMutex.lock(pluginName)
-            .then(unlock => new Promise((accept, reject) => {
-              installer.removeModule(pluginName, err => {
-                if (!err) {
-                  accept({
-                    plugin,
-                    pluginName,
-                  });
-                } else {
-                  reject(err);
-                }
-
-                unlock();
+        .then(pluginName => new Promise((accept, reject) => {
+          installer.removeModule(pluginName, err => {
+            if (!err) {
+              accept({
+                plugin,
+                pluginName,
               });
-            }))
-        )
+            } else {
+              reject(err);
+            }
+          })
+        }))
         .then(accept)
         .catch(reject);
     });
@@ -1168,12 +1132,10 @@ class ArchaeInstaller {
           const npmInstall = child_process.spawn(
             npmCommands.install.cmd[0],
             npmCommands.install.cmd.slice(1).concat([
-              '--cache-folder', path.join(dirname, installDirectory, 'caches', moduleName),
               modulePath,
             ]),
             {
               cwd: path.join(dirname, installDirectory, 'plugins', moduleName),
-              env: npmCommands.install.env,
             }
           );
           npmInstall.stdout.pipe(process.stdout);
