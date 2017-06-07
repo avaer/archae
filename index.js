@@ -1058,9 +1058,6 @@ class ArchaeInstaller {
     this.dirname = dirname;
     this.installDirectory = installDirectory;
     this.pather = pather;
-
-    this.running = false;
-    this.queue = [];
   }
 
   addModules(modules, moduleNames, force, cb) {
@@ -1252,24 +1249,6 @@ class ArchaeInstaller {
 
     const modulePath = pather.getInstalledModulePath(moduleName);
     rimraf(modulePath, cb);
-  }
-
-  queueNpm(handler) {
-    const {running, queue} = this;
-
-    if (!running) {
-      this.running = true;
-
-      handler(() => {
-        this.running = false;
-
-        if (queue.length > 0) {
-          this.queueNpm(queue.pop());
-        }
-      });
-    } else {
-      queue.push(handler);
-    }
   }
 }
 
