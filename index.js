@@ -36,7 +36,7 @@ const defaultConfig = {
 const npmCommands = {
   install: {
     cmd: [
-      'npm', 'install', '--production', '--no-save'
+      'npm', 'install', '--production', '--no-save', '--no-shrinkwrap',
     ],
   },
 };
