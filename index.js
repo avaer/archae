@@ -5,6 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const child_process = require('child_process');
+const os = require('os');
 
 const spdy = require('spdy');
 const express = require('express');
@@ -33,6 +34,7 @@ const defaultConfig = {
   metadata: null,
 };
 
+const numCpus = os.cpus().length;
 const npmCommands = {
   install: {
     cmd: [
@@ -1058,6 +1060,9 @@ class ArchaeInstaller {
     this.dirname = dirname;
     this.installDirectory = installDirectory;
     this.pather = pather;
+
+    this.numTickets = numCpus;
+    this.queue = [];
   }
 
   addModules(modules, moduleNames, force, cb) {
@@ -1105,6 +1110,29 @@ class ArchaeInstaller {
           });
       }
     };
+    const _requestTicket = () => new Promise((accept, reject) => {
+      const _release = () => {
+        const {numTickets} = this;
+        this.numTickets = numTickets + 1;
+
+        const {queue} = this;
+        if (queue.length > 0) {
+          queue.splice(0, 1)[0]();
+        }
+      };
+      const _recurse = () => {
+        const {numTickets} = this;
+        if (numTickets > 0) {
+          this.numTickets = numTickets -1;
+
+          accept(_release);
+        } else {
+          const {queue} = this;
+          queue.push(_recurse);
+        }
+      };
+      _recurse();
+    });
     const _npmInstall = (modules, moduleNames, cb) => {
       Promise.all(modules.map((module, index) => {
         const moduleName = moduleNames[index];
@@ -1198,9 +1226,20 @@ class ArchaeInstaller {
           ]);
         };
 
-        return _ensureNodeModules(module, moduleName)
-          .then(() => _install(module, moduleName))
-          .then(() => _build(module, moduleName));
+        return _requestTicket()
+          .then(release => {
+            return _ensureNodeModules(module, moduleName)
+              .then(() => _install(module, moduleName))
+              .then(() => _build(module, moduleName))
+              .then(() => {
+                release();
+              })
+              .catch(err => {
+                release();
+
+                return Promise.reject(err);
+              });
+          });
       }))
         .then(() => {
           cb();
