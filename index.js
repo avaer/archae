@@ -993,15 +993,8 @@ class ArchaePather {
       fs.readFile(this.getLocalModulePackageJsonPath(module), 'utf8', (err, s) => {
         if (!err) {
           const j = JSON.parse(s);
-          const moduleName = j.name;
-          const displayName = module.match(/([^\/]*)$/)[1];
-
-          if (moduleName === displayName) {
-            cb(null, moduleName);
-          } else {
-            const err = new Error('module name in package.json does not match path: ' + JSON.stringify(module));
-            cb(err);
-          }
+          const {name: moduleName} = j;
+          cb(null, moduleName);
         } else {
           cb(err);
         }
