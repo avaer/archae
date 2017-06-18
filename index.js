@@ -35,6 +35,7 @@ const defaultConfig = {
 };
 
 const numCpus = os.cpus().length;
+const isWindows = o.platform() === 'win32';
 const npmCommands = {
   install: {
     cmd: [
@@ -1154,6 +1155,7 @@ class ArchaeInstaller {
             ]),
             {
               cwd: path.join(dirname, installDirectory, 'plugins', moduleName),
+              shell: isWindows,
             }
           );
           npmInstall.stdout.pipe(process.stdout);
