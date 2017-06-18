@@ -35,7 +35,7 @@ const defaultConfig = {
 };
 
 const numCpus = os.cpus().length;
-const isWindows = o.platform() === 'win32';
+const isWindows = os.platform() === 'win32';
 const npmCommands = {
   install: {
     cmd: [
