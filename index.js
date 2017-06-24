@@ -40,7 +40,7 @@ const isWindows = os.platform() === 'win32';
 const npmCommands = {
   install: {
     cmd: [
-      'npm', 'install', '--production', '--no-save', '--no-shrinkwrap',
+      path.join(__dirname, 'node_modules', 'yarn', 'bin', 'yarn'), 'add',
     ],
   },
 };
@@ -1059,8 +1059,8 @@ class ArchaeInstaller {
           const npmInstall = child_process.spawn(
             npmCommands.install.cmd[0],
             npmCommands.install.cmd.slice(1).concat([
-              '--save',
               modulePath,
+              '--production',
             ]),
             {
               cwd: path.join(pather.getAbsoluteModulePath(module)),
