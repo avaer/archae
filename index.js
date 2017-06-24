@@ -1061,6 +1061,7 @@ class ArchaeInstaller {
             npmCommands.install.cmd.slice(1).concat([
               modulePath,
               '--production',
+              '--mutex', 'file:' + path.join(os.tmpdir(), '.archae-yarn-lock'),
             ]),
             {
               cwd: path.join(pather.getAbsoluteModulePath(module)),
