@@ -1048,6 +1048,15 @@ class ArchaeInstaller {
     const _requestNpmInstall = modules => {
       return Promise.all(modules.map(module => {
         const _ensurePackageJson = module => _writeFile(path.join(pather.getAbsoluteModulePath(module), 'package.json'), '{}');
+        const _ensureNodeModules = module => new Promise((accept, reject) => {
+          mkdirp(path.join(pather.getAbsoluteModulePath(module), 'node_modules'), err => {
+            if (!err) {
+              accept();
+            } else {
+              reject(err);
+            }
+          });
+        });
         const _install = module => new Promise((accept, reject) => {
           const modulePath = (() => {
             if (path.isAbsolute(module)) {
@@ -1120,17 +1129,20 @@ class ArchaeInstaller {
 
         return _requestTicket()
           .then(release => {
-            return _ensurePackageJson(module)
+            Promise.all([
+              _ensurePackageJson(module),
+              _ensureNodeModules(module),
+            ])
               .then(() => _install(module))
               .then(() => _build(module))
-              .then(() => {
-                release();
-              })
-              .catch(err => {
-                release();
+          })
+          .then(() => {
+            release();
+          })
+          .catch(err => {
+            release();
 
-                return Promise.reject(err);
-              });
+            return Promise.reject(err);
           });
       }));
     };
