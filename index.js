@@ -1146,9 +1146,23 @@ class ArchaeInstaller {
   }
 
   removeModule(module, cb) {
-    const {pather} = this;
+    const {pather, fsHash} = this;
 
-    rimraf(pather.getAbsoluteModulePath(module), cb);
+    fsHash.remove(module, () => new Promise((accept, reject) => {
+      rimraf(pather.getAbsoluteModulePath(module), err => {
+        if (!err) {
+          accept();
+        } else {
+          reject(err);
+        }
+      });
+    }))
+      .then(() => {
+        cb();
+      })
+      .catch(err => {
+        cb(err);
+      });
   }
 }
 
