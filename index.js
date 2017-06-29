@@ -502,6 +502,15 @@ class ArchaeServer extends EventEmitter {
 
     if (pluginInstance !== undefined) {
       const _cleanup = () => {
+        for (const p in require.cache) {
+          const module = require.cache[p];
+          const {exports} = module;
+
+          if (exports === pluginInstance) {
+            delete require.cache[p];
+          }
+        }
+
         delete this.pluginInstances[plugin];
         delete this.pluginApis[plugin];
       };
