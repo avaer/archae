@@ -501,7 +501,7 @@ class ArchaeServer extends EventEmitter {
     const pluginInstance = this.pluginInstances[plugin];
 
     if (pluginInstance !== undefined) {
-      Promise.resolve(typeof pluginInstance.unmount === 'function' ? pluginInstance.unmount : null)
+      Promise.resolve(typeof pluginInstance.unmount === 'function' ? pluginInstance.unmount() : null)
         .then(() => {
           delete this.pluginInstances[plugin];
           delete this.pluginApis[plugin];
