@@ -468,13 +468,13 @@ class ArchaeServer extends EventEmitter {
         Promise.resolve(_instantiate(moduleRequire, this))
           .then(pluginInstance => {
             this.pluginInstances[plugin] = pluginInstance;
+            pluginInstance[pathSymbol] = plugin;
 
             Promise.resolve(pluginInstance.mount())
               .then(pluginApi => {
                 if (typeof pluginApi !== 'object' || pluginApi === null) {
                   pluginApi = {};
                 }
-                pluginApi[pathSymbol] = plugin;
 
                 this.pluginApis[plugin] = pluginApi;
 
@@ -485,15 +485,13 @@ class ArchaeServer extends EventEmitter {
               });
           })
           .catch(err => {
-
             cb(err);
           });
       } else {
-        this.pluginInstances[plugin] = {};
-        this.pluginApis[plugin] = {
+        this.pluginInstances[plugin] = {
           [pathSymbol]: plugin,
         };
-
+        this.pluginApis[plugin] = {};
         cb();
       }
     }
@@ -538,8 +536,8 @@ class ArchaeServer extends EventEmitter {
     };
   }
 
-  getPath(pluginApi) {
-    return pluginApi ? pluginApi[pathSymbol] : null;
+  getPath(pluginInstance) {
+    return pluginInstance ? pluginInstance[pathSymbol] : null;
   }
 
   mountApp() {
