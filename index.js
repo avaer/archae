@@ -13,6 +13,7 @@ const ws = require('ws');
 const etag = require('etag');
 const mkdirp = require('mkdirp');
 const rimraf = require('rimraf');
+const getport = require('getport');
 const rollup = require('rollup');
 const rollupPluginNodeResolve = require('rollup-plugin-node-resolve');
 const rollupPluginCommonJs = require('rollup-plugin-commonjs');
@@ -889,27 +890,35 @@ class ArchaeServer extends EventEmitter {
       return Promise.resolve();
     };
     const _listen = () => new Promise((accept, reject) => {
-      const {host, port, server} = this;
+      const {port} = this;
 
-      const listening = () => {
-        accept();
+      getport(port, (err, port) => {
+        if (!err) {
+          this.port = port;
+          const {host, server} = this;
 
-        _cleanup();
-      };
-      const error = err => {
-        reject(err);
+          const listening = () => {
+            accept();
 
-        _cleanup();
-      };
+            _cleanup();
+          };
+          const error = err => {
+            reject(err);
 
-      const _cleanup = () => {
-        server.removeListener('listening', listening);
-        server.removeListener('error', error);
-      };
+            _cleanup();
+          };
+          const _cleanup = () => {
+            server.removeListener('listening', listening);
+            server.removeListener('error', error);
+          };
 
-      server.listen(port, host);
-      server.on('listening', listening);
-      server.on('error', error);
+          server.listen(port, host);
+          server.on('listening', listening);
+          server.on('error', error);
+        } else {
+          reject(err);
+        }
+      });
     });
 
     _ensurePublicBundlePromise()
