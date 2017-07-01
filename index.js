@@ -41,7 +41,7 @@ const isWindows = os.platform() === 'win32';
 const npmCommands = {
   install: {
     cmd: [
-      path.join(__dirname, 'node_modules', 'yarn', 'bin', 'yarn'), 'add',
+      path.join(require.resolve('yarn-zeo'), '..', 'bin', 'yarn'), 'add',
     ],
   },
 };
