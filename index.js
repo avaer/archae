@@ -948,7 +948,7 @@ class ArchaePather {
   }
 
   getAbsoluteModulePath(module) {
-    return this.getDirectAbsoluteModulePath(path.isAbsolute(module) ? module.replace(/\//g, '_') : module);
+    return this.getDirectAbsoluteModulePath(path.isAbsolute(module) ? module.replace(/[\/\\]/g, '_') : module);
   }
 
   requestInstalledModulePath(module) {
