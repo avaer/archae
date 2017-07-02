@@ -1003,12 +1003,40 @@ class ArchaePather {
       }));
   }
 
+  requestPackageJsonFileNames(plugin, packageJsonFileNamesKey) {
+    const {dirname, installDirectory} = this;
+
+    return this.requestInstalledModulePath(plugin)
+      .then(installedPath => new Promise((accept, reject) => {
+        const packageJsonPath = path.join(installedPath, 'package.json');
+
+        fs.readFile(packageJsonPath, 'utf8', (err, s) => {
+          if (!err) {
+            const j = JSON.parse(s);
+            const o = j[packageJsonFileNamesKey];
+
+            if (typeof o === 'object') {
+              const fileNames = Object.keys(o).map(dst => ({
+                src: path.join(installedPath, o[dst]),
+                dst: dst,
+              }));
+              accept(fileNames);
+            } else {
+              accept(null);
+            }
+          } else {
+            reject(err);
+          }
+        });
+      }));
+  }
+
   requestPluginClient(plugin) {
     return this.requestPackageJsonFileName(plugin, 'client');
   }
 
   requestPluginBuilds(plugin) {
-    return this.requestPackageJsonFileName(plugin, 'builds');
+    return this.requestPackageJsonFileNames(plugin, 'builds');
   }
 }
 
@@ -1123,14 +1151,11 @@ class ArchaeInstaller {
           const _buildBuilds = () => {
             return pather.requestPluginBuilds(module)
               .then(buildFileNames => {
-                if (Array.isArray(buildFileNames)) {
-                  return Promise.all(buildFileNames.map(buildFileName => {
-                    const srcPath = buildFileName;
-                    const dstPath = path.join(pather.getAbsoluteModulePath(module), '.archae', 'build', buildFileName);
-
-                    return _requestRollup(srcPath)
-                      .then(code => _writeFile(dstPath, code));
-                  }));
+                if (buildFileNames) {
+                  return Promise.all(buildFileNames.map(({src, dst}) =>
+                    _requestRollup(src)
+                      .then(code => _writeFile(path.join(pather.getAbsoluteModulePath(module), '.archae', 'build', dst + '.js'), code))
+                  ));
                 } else {
                   return Promise.resolve([]);
                 }
