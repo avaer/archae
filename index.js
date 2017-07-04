@@ -41,7 +41,7 @@ const isWindows = os.platform() === 'win32';
 const npmCommands = {
   install: {
     cmd: [
-      path.join(require.resolve('yarn-zeo'), '..', 'bin', 'yarn'), 'add',
+      path.join(require.resolve('yarn-zeo'), '..', 'bin', 'yarn.js'), 'add',
     ],
   },
 };
@@ -1109,8 +1109,8 @@ class ArchaeInstaller {
             }
           })();
           const npmInstall = child_process.spawn(
-            npmCommands.install.cmd[0],
-            npmCommands.install.cmd.slice(1).concat([
+            process.argv[0],
+            npmCommands.install.cmd.concat([
               modulePath,
               '--production',
               '--mutex', 'file:' + path.join(os.tmpdir(), '.archae-yarn-lock'),
