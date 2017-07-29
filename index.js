@@ -216,9 +216,11 @@ class ArchaeServer extends EventEmitter {
   }
 
   getWss() {
-    return new ws.Server({
+    const wss = new ws.Server({
       noServer: true,
     });
+    wss.setMaxListeners(100);
+    return wss;
   }
 
   requestPlugin(plugin, {force = false, hotload = false} = {}) {
