@@ -584,7 +584,7 @@ class ArchaeServer extends EventEmitter {
     const httpBasicAuth = httpAuth.connect(httpAuth.basic({
       realm: 'Zeo',
     }, (u, p, cb) => {
-      cb(u === this.password || p === this.password);
+      cb(p === this.password);
     }));
     app.all('*', (req, res, next) => {
       if (this.password !== null) {
