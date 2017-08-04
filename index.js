@@ -11,6 +11,7 @@ const spdy = require('spdy');
 const express = require('express');
 const ws = require('ws');
 const etag = require('etag');
+const httpAuth = require('http-auth');
 const mkdirp = require('mkdirp');
 const rimraf = require('rimraf');
 const getport = require('getport');
@@ -33,6 +34,7 @@ const defaultConfig = {
   dataDirectory: 'data',
   cryptoDirectory: 'crypto',
   installDirectory: 'installed',
+  password: null,
   metadata: null,
 };
 
@@ -62,6 +64,7 @@ class ArchaeServer extends EventEmitter {
     app,
     wss,
     generateCerts,
+    password,
     locked,
     cors,
     corsOrigin,
@@ -107,6 +110,9 @@ class ArchaeServer extends EventEmitter {
 
     generateCerts = generateCerts || false;
     this.generateCerts = generateCerts;
+
+    password = (typeof password === 'string') ? password : defaultConfig.password;
+    this.password = password;
 
     locked = locked || false;
     this.locked = locked;
@@ -573,6 +579,20 @@ class ArchaeServer extends EventEmitter {
         next();
       });
     }
+
+    // password
+    const httpBasicAuth = httpAuth.connect(httpAuth.basic({
+      realm: 'Zeo',
+    }, (u, p, cb) => {
+      cb(u === this.password || p === this.password);
+    }));
+    app.all('*', (req, res, next) => {
+      if (this.password !== null) {
+        httpBasicAuth(req, res, next);
+      } else {
+        next();
+      }
+    });
 
     // user public
     if (publicDirectory) {
