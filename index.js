@@ -133,6 +133,23 @@ class ArchaeServer extends EventEmitter {
     const installer = new ArchaeInstaller(dirname, dataDirectory, installDirectory, pather);
     this.installer = installer;
 
+    const auther = (() => {
+      const httpBasicAuth = httpAuth.connect(httpAuth.basic({
+        realm: 'Zeo',
+      }, (u, p, cb) => {
+        cb(p === this.password);
+      }));
+
+      return (req, res, next) => {
+        if (!/^(?:::ffff:)?127\.0\.0\.1$/.test(req.connection.remoteAddress) && this.password !== null) {
+          httpBasicAuth(req, res, next);
+        } else {
+          next();
+        }
+      };
+    })();
+    this.auther = auther;
+
     this.connections = [];
 
     this.plugins = {};
@@ -566,7 +583,7 @@ class ArchaeServer extends EventEmitter {
   }
 
   mountApp() {
-    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, corsOrigin, staticSite, pather} = this;
+    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, corsOrigin, staticSite, pather, auther} = this;
 
     // cross-origin resoure sharing
     if (cors) {
@@ -581,22 +598,22 @@ class ArchaeServer extends EventEmitter {
     }
 
     // password
-    const httpBasicAuth = httpAuth.connect(httpAuth.basic({
-      realm: 'Zeo',
-    }, (u, p, cb) => {
-      cb(p === this.password);
-    }));
-    app.all('*', (req, res, next) => {
-      if (!/^(?:::ffff:)?127\.0\.0\.1$/.test(req.connection.remoteAddress) && this.password !== null) {
-        httpBasicAuth(req, res, next);
-      } else {
-        next();
-      }
-    });
+    app.all('*', auther);
 
     // user public
     if (publicDirectory) {
       app.use('/', express.static(path.join(dirname, publicDirectory)));
+    }
+
+    class FakeResponse {
+      constructor(socket) {
+        this.socket = socket;
+      }
+      setHeader() {}
+      writeHead() {}
+      end() {
+        return this.socket.end();
+      }
     }
 
     class UpgradeEvent {
@@ -619,14 +636,16 @@ class ArchaeServer extends EventEmitter {
 
     server.on('upgrade', (req, socket, head) => {
       if (!staticSite) {
-        const upgradeEvent = new UpgradeEvent(req, socket, head);
-        wss.emit('upgrade', upgradeEvent);
+        auther(req, new FakeResponse(socket), () => {
+          const upgradeEvent = new UpgradeEvent(req, socket, head);
+          wss.emit('upgrade', upgradeEvent);
 
-        if (upgradeEvent.isLive()) {
-          wss.handleUpgrade(req, socket, head, c => {
-            wss.emit('connection', c);
-          });
-        }
+          if (upgradeEvent.isLive()) {
+            wss.handleUpgrade(req, socket, head, c => {
+              wss.emit('connection', c);
+            });
+          }
+        });
       } else {
         socket.destroy();
       }
