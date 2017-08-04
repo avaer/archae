@@ -587,7 +587,7 @@ class ArchaeServer extends EventEmitter {
       cb(p === this.password);
     }));
     app.all('*', (req, res, next) => {
-      if (this.password !== null) {
+      if (!/^(?:::ffff:)?127\.0\.0\.1$/.test(req.connection.remoteAddress) && this.password !== null) {
         httpBasicAuth(req, res, next);
       } else {
         next();
