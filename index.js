@@ -67,7 +67,6 @@ class ArchaeServer extends EventEmitter {
     password,
     locked,
     cors,
-    corsOrigin,
     staticSite,
   } = {}) {
     super();
@@ -119,9 +118,6 @@ class ArchaeServer extends EventEmitter {
 
     cors = cors || false;
     this.cors = cors;
-
-    corsOrigin = corsOrigin || '*';
-    this.corsOrigin = corsOrigin;
 
     staticSite = staticSite || false;
     this.staticSite = staticSite;
@@ -583,12 +579,12 @@ class ArchaeServer extends EventEmitter {
   }
 
   mountApp() {
-    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, corsOrigin, staticSite, pather, auther} = this;
+    const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, staticSite, pather, auther} = this;
 
     // cross-origin resoure sharing
     if (cors) {
       app.all('*', (req, res, next) => {
-        res.set('Access-Control-Allow-Origin', corsOrigin);
+        res.set('Access-Control-Allow-Origin', req.get('Origin'));
         res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
         res.set('Access-Control-Allow-Credentials', 'true');
