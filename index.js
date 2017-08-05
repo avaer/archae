@@ -664,12 +664,7 @@ class ArchaeServer extends EventEmitter {
 
       // archae lists
       app.use('/archae/plugins.json', (req, res, next) => {
-        const plugins = this.getLoadedPlugins();
-
-        res.type('application/json');
-        res.send(JSON.stringify({
-          plugins,
-        }, null, 2));
+        res.json(this.getLoadedPlugins());
       });
 
       // archae bundles
