@@ -1245,14 +1245,6 @@ class ArchaeInstaller {
   }
 }
 
-const _makeIndex = a => {
-  const result = {};
-  for (let i = 0; i < a.length; i++) {
-    const e = a[i];
-    result[e] = true;
-  }
-  return result;
-};
 const _instantiate = (o, arg) => {
   if (typeof o === 'function') {
     if (/^(?:function|class)/.test(o.toString())) {
