@@ -1258,7 +1258,7 @@ const _instantiate = (o, arg) => {
 };
 // const _uninstantiate = api => (typeof api.unmount === 'function') ? api.unmount() : null;
 const _requestRollup = p => rollup.rollup({
-  entry: p,
+  input: p,
   plugins: [
     rollupPluginNodeResolve({
       main: true,
@@ -1268,16 +1268,12 @@ const _requestRollup = p => rollup.rollup({
     rollupPluginJson(),
   ],
 })
-  .then(bundle => {
-    const result = bundle.generate({
-      moduleName: module,
-      format: 'cjs',
-      useStrict: false,
-    });
-    const {code} = result;
-    const wrappedCode = '(function() {\n' + code + '\n})();\n';
-    return wrappedCode;
-  });
+  .then(bundle => bundle.generate({
+    name: module,
+    format: 'cjs',
+    strict: false,
+  }))
+  .then(({code}) => '(function() {\n' + code + '\n})();\n');
 
 const archae = opts => new ArchaeServer(opts);
 module.exports = archae;
