@@ -30,6 +30,7 @@ const defaultConfig = {
   host: null,
   port: 8000,
   secure: false,
+  hotload: true,
   publicDirectory: null,
   dataDirectory: 'data',
   cryptoDirectory: 'crypto',
@@ -55,6 +56,7 @@ class ArchaeServer extends EventEmitter {
     host,
     port,
     secure,
+    hotload,
     publicDirectory,
     dataDirectory,
     cryptoDirectory,
@@ -82,6 +84,9 @@ class ArchaeServer extends EventEmitter {
 
     secure = (typeof secure === 'boolean') ? secure : defaultConfig.secure;
     this.secure = secure;
+
+    hotload = (typeof hotload === 'boolean') ? hotload : defaultConfig.hotload;
+    this.hotload = hotload;
 
     publicDirectory = publicDirectory || defaultConfig.publicDirectory;
     this.publicDirectory = publicDirectory;
@@ -126,7 +131,7 @@ class ArchaeServer extends EventEmitter {
 
     const pather = new ArchaePather(dirname, installDirectory);
     this.pather = pather;
-    const installer = new ArchaeInstaller(dirname, dataDirectory, installDirectory, pather);
+    const installer = new ArchaeInstaller(dirname, dataDirectory, installDirectory, pather, hotload);
     this.installer = installer;
 
     const auther = (() => {
@@ -414,7 +419,7 @@ class ArchaeServer extends EventEmitter {
   watchPlugin(plugin, {hotload}) {
     if (this.watchers[plugin] === undefined) {
       const watcher = (() => {
-        if (hotload && /^\//.test(plugin)) {
+        if (this.hotload && hotload && /^\//.test(plugin)) {
           const {dirname} = this;
           const moduleDirectoryPath = path.join(dirname, plugin);
           const watcher = new watchr.Watcher(moduleDirectoryPath);
@@ -1072,14 +1077,17 @@ class ArchaePather {
 }
 
 class ArchaeInstaller {
-  constructor(dirname, dataDirectory, installDirectory, pather, fsHash) {
+  constructor(dirname, dataDirectory, installDirectory, pather, hotload) {
     this.dirname = dirname;
     this.dataDirectory = dataDirectory;
     this.installDirectory = installDirectory;
     this.pather = pather;
-    this.fsHash = fshash({
+    this.fsHash = hotload ? fshash({
       basePath: dirname,
       dataPath: path.join(dataDirectory, 'mod-hashes.json'),
+    }) : _makeFakeFsHash({
+      basePath: dirname,
+      pather,
     });
 
     this.numTickets = numCpus;
@@ -1245,6 +1253,37 @@ class ArchaeInstaller {
   }
 }
 
+const _makeFakeFsHash = ({basePath, pather}) => ({
+  updateAll: (ps, fn) => {
+    ps = ps.slice().sort();
+
+    const promises = [];
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i];
+      promises.push(
+        _requestExists(pather.getAbsoluteModulePath(p))
+          .then(exists => !exists ? p : null)
+      );
+    }
+    return Promise.all(promises)
+      .then(paths => Promise.resolve(fn(paths.filter(p => p !== null))))
+      .then(() => {});
+  },
+  remove: (p, fn) => Promise.resolve(fn(p)),
+});
+const _requestExists = p => new Promise((accept, reject) => {
+  fs.lstat(p, err => {
+    if (!err) {
+      accept(true);
+    } else {
+      if (err.code === 'ENOENT') {
+        accept(false);
+      } else {
+        reject(err);
+      }
+    }
+  });
+});
 const _instantiate = (o, arg) => {
   if (typeof o === 'function') {
     if (/^(?:function|class)/.test(o.toString())) {
