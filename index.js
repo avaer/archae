@@ -1002,11 +1002,11 @@ class ArchaePather {
             if (keys.length > 0) {
               accept(path.join(absolutePath, 'node_modules', keys[0]));
             } else {
-              const err = new Error('module package.json corrupted: ' + JSON.stringify({module, packageJson: j}));
+              const err = new Error('module package.json corrupted: ' + JSON.stringify({module, absolutePath, packageJson: j}));
               reject(err);
             }
           } else {
-            const err = new Error('module package.json corrupted: ' + JSON.stringify({module, packageJson: j}));
+            const err = new Error('module package.json corrupted: ' + JSON.stringify({module, absolutePath, packageJson: j}));
             reject(err);
           }
         } else {
