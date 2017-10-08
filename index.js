@@ -995,13 +995,19 @@ class ArchaePather {
       fs.readFile(path.join(absolutePath, 'package.json'), 'utf8', (err, s) => {
         if (!err) {
           const j = JSON.parse(s);
-          const {dependencies} = j;
-          const keys = Object.keys(dependencies);
+          if (j && j.dependencies && typeof j.dependencies === 'object') {
+            const {dependencies} = j;
+            const keys = Object.keys(dependencies);
 
-          if (keys.length > 0) {
-            accept(path.join(absolutePath, 'node_modules', keys[0]));
+            if (keys.length > 0) {
+              accept(path.join(absolutePath, 'node_modules', keys[0]));
+            } else {
+              const err = new Error('module package.json corrupted: ' + JSON.stringify({module, packageJson: j}));
+              reject(err);
+            }
           } else {
-            reject(null);
+            const err = new Error('module package.json corrupted: ' + JSON.stringify({module, packageJson: j}));
+            reject(err);
           }
         } else {
           reject(err);
