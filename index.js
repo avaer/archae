@@ -648,7 +648,7 @@ class ArchaeServer extends EventEmitter {
 
           if (upgradeEvent.isLive()) {
             wss.handleUpgrade(req, socket, head, c => {
-              wss.emit('connection', c);
+              wss.emit('connection', c, req);
             });
           }
         });
@@ -733,7 +733,7 @@ class ArchaeServer extends EventEmitter {
         }
       });
 
-      wss.on('connection', c => {
+      wss.on('connection', (c, {url}) => {
         c.send = (send =>
           (data, cb = err => {
             if (err) {
@@ -748,7 +748,6 @@ class ArchaeServer extends EventEmitter {
           c.close();
         });
 
-        const {url} = c.upgradeReq;
         if (url === '/archae/ws') {
           console.log('connection open');
 
