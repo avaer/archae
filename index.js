@@ -35,6 +35,7 @@ const defaultConfig = {
   dataDirectory: 'data',
   cryptoDirectory: 'crypto',
   installDirectory: 'installed',
+  indexJsFiles: [],
   password: null,
   metadata: null,
 };
@@ -61,6 +62,7 @@ class ArchaeServer extends EventEmitter {
     dataDirectory,
     cryptoDirectory,
     installDirectory,
+    indexJsFiles,
     metadata,
     server,
     app,
@@ -99,6 +101,9 @@ class ArchaeServer extends EventEmitter {
 
     installDirectory = installDirectory || defaultConfig.installDirectory;
     this.installDirectory = installDirectory;
+
+    indexJsFiles = indexJsFiles || defaultConfig.indexJsFiles;
+    this.indexJsFiles = indexJsFiles;
 
     metadata = metadata || defaultConfig.metadata;
     this.metadata = metadata;
@@ -654,7 +659,7 @@ class ArchaeServer extends EventEmitter {
 
     if (!staticSite) {
       // archae public
-      app.get('/archae/archae.js', (req, res, next) => {
+      app.get('/archae/index.js', (req, res, next) => {
         this.publicBundlePromise
           .then(codeObject => {
             res.type('application/javascript');
@@ -883,7 +888,9 @@ class ArchaeServer extends EventEmitter {
 
   listen(cb) {
     const _ensurePublicBundlePromise = () => {
-      this.publicBundlePromise = _requestRollup(path.join(__dirname, 'lib', 'archae.js'))
+      this.publicBundlePromise = _requestRollup([
+        path.join(__dirname, 'lib', 'archae.js'),
+      ].concat(this.indexJsFiles))
         .then(codeString => {
           const codeObject = new String(codeString);
           codeObject.etag = etag(codeString);
@@ -1302,23 +1309,30 @@ const _instantiate = (o, arg) => {
   }
 };
 // const _uninstantiate = api => (typeof api.unmount === 'function') ? api.unmount() : null;
-const _requestRollup = p => rollup.rollup({
-  input: p,
-  plugins: [
-    rollupPluginNodeResolve({
-      main: true,
-      preferBuiltins: false,
-    }),
-    rollupPluginCommonJs(),
-    rollupPluginJson(),
-  ],
-})
-  .then(bundle => bundle.generate({
-    name: module,
-    format: 'cjs',
-    strict: false,
-  }))
-  .then(({code}) => '(function() {\n' + code + '\n})();\n');
+const _requestRollup = p => {
+  const ps = Array.isArray(p) ? p : [p];
+
+  return Promise.all(ps.map(p =>
+    rollup.rollup({
+      input: p,
+      plugins: [
+        rollupPluginNodeResolve({
+          main: true,
+          preferBuiltins: false,
+        }),
+        rollupPluginCommonJs(),
+        rollupPluginJson(),
+      ],
+    })
+      .then(bundle => bundle.generate({
+        name: module,
+        format: 'cjs',
+        strict: false,
+      }))
+      .then(({code}) => code)
+  ))
+    .then(codes => '(function() {\n' + codes.join('\n') + '\n})();\n');
+};
 
 const archae = opts => new ArchaeServer(opts);
 module.exports = archae;
