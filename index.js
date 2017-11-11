@@ -44,7 +44,7 @@ const numCpus = os.cpus().length;
 const npmCommands = {
   install: {
     cmd: [
-      path.join(path.dirname(process.argv[0]), 'npm' + (os.platform() === 'win32' ? '.cmd' : '')), 'install',
+      path.join(require.resolve('yarn-zeo'), '..', 'bin', 'yarn.js'), 'add',
     ],
   },
 };
@@ -1160,16 +1160,14 @@ class ArchaeInstaller {
             }
           })();
           const npmInstall = child_process.spawn(
-            npmCommands.install.cmd[0],
-            npmCommands.install.cmd.slice(1).concat([
+            process.argv[0],
+            npmCommands.install.cmd.concat([
               modulePath,
               '--production',
+              '--mutex', 'file:' + path.join(os.tmpdir(), '.archae-yarn-lock'),
             ]),
             {
               cwd: path.join(pather.getAbsoluteModulePath(module)),
-              env: Object.assign(JSON.parse(JSON.stringify(process.env)), {
-                NO_UPDATE_NOTIFIER: '1',
-              }),
             }
           );
           npmInstall.stdout.pipe(process.stdout);
