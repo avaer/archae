@@ -1168,6 +1168,7 @@ class ArchaeInstaller {
             ]),
             {
               cwd: path.join(pather.getAbsoluteModulePath(module)),
+              env: process.env,
             }
           );
           npmInstall.stdout.pipe(process.stdout);
