@@ -44,7 +44,7 @@ const numCpus = os.cpus().length;
 const npmCommands = {
   install: {
     cmd: [
-      'npm', 'install',
+      path.join(path.dirname(process.argv[0]), 'npm' + (os.platform() === 'win32' ? '.cmd' : '')), 'install',
     ],
   },
 };
@@ -1167,6 +1167,9 @@ class ArchaeInstaller {
             ]),
             {
               cwd: path.join(pather.getAbsoluteModulePath(module)),
+              env: Object.assign(JSON.parse(JSON.stringify(process.env)), {
+                NO_UPDATE_NOTIFIER: '1',
+              }),
             }
           );
           npmInstall.stdout.pipe(process.stdout);
