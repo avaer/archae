@@ -1,7 +1,7 @@
 const path = require('path');
 const WebSocket = require('ws/lib/WebSocket.js');
 
-module.exports = ({protocol = 'http', host = '127.0.0.1', port = 8000} = {}) => {
+module.exports = ({protocol = 'http', host = '127.0.0.1', port = 8080} = {}) => {
   const window = global;
   const location = {
     protocol: protocol + ':',
