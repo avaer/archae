@@ -139,9 +139,9 @@ class ArchaeServer extends EventEmitter {
 
     this.publicBundlePromise = null;
 
-    const pather = new ArchaePather(dirname, installDirectory);
+    const pather = new ArchaePather(dirname, pluginsDirectory, installDirectory);
     this.pather = pather;
-    const installer = new ArchaeInstaller(dirname, pluginsDirectory, dataDirectory, installDirectory, pather, hotload);
+    const installer = new ArchaeInstaller(dirname, dataDirectory, installDirectory, pather, hotload);
     this.installer = installer;
 
     const auther = (() => {
@@ -306,30 +306,36 @@ class ArchaeServer extends EventEmitter {
 
         this.loadsMutex.lock(plugin)
           .then(unlock => {
-            this.watchPlugin(plugin, {hotload});
-
-            this.loadPlugin(plugin, err => {
+            this.watchPlugin(plugin, {hotload}, err => {
               if (!err) {
-                this.mountsMutex.lock(plugin)
-                  .then(unlock => {
-                    this.mountPlugin(plugin, err => {
-                      if (!err) {
-                        cb(null, this.pluginApis[plugin]);
-                      } else {
-                        cb(err);
-                      }
+                this.loadPlugin(plugin, err => {
+                  if (!err) {
+                    this.mountsMutex.lock(plugin)
+                      .then(unlock => {
+                        this.mountPlugin(plugin, err => {
+                          if (!err) {
+                            cb(null, this.pluginApis[plugin]);
+                          } else {
+                            cb(err);
+                          }
 
-                      unlock();
-                    });
-                  })
-                  .catch(err => {
+                          unlock();
+                        });
+                      })
+                      .catch(err => {
+                        cb(err);
+                      });
+                  } else {
                     cb(err);
-                  });
+                  }
+
+                  unlock();
+                });
               } else {
                 cb(err);
-              }
 
-              unlock();
+                unlock();
+              }
             });
           })
           .catch(err => {
@@ -426,47 +432,54 @@ class ArchaeServer extends EventEmitter {
     delete this.plugins[plugin];
   }
 
-  watchPlugin(plugin, {hotload}) {
-    if (this.watchers[plugin] === undefined) {
-      const watcher = (() => {
-        if (this.hotload && hotload && path.isAbsolute(plugin)) {
-          const {dirname} = this;
-          const moduleDirectoryPath = path.join(dirname, plugin);
-          const watcher = new watchr.Watcher(moduleDirectoryPath);
-          watcher.setConfig({
-            catchupDelay: 100,
-          });
-          const change = (/*changeType, fullPath, currentStat, previousStat*/) => {
-            this.broadcast('unload', plugin);
+  watchPlugin(plugin, {hotload}, cb) {
+    const {pather} = this;
 
-            this.removePlugin(plugin)
-              .then(() => {
-                this.broadcast('load', plugin);
+    if (this.watchers[plugin] === undefined && this.hotload && hotload) {
+      pather.requestModulePath(plugin)
+        .then(pluginPath => {
+          const match = pluginPath.match(/^file:(.+)$/);
+          if (match) {
+            pluginPath = match[1];
 
-                return this.requestPlugin(plugin, {
-                  hotload: true,
+            const watcher = new watchr.Watcher(pluginPath);
+            watcher.setConfig({
+              catchupDelay: 100,
+            });
+            const change = (/*changeType, fullPath, currentStat, previousStat*/) => {
+              this.broadcast('unload', plugin);
+
+              this.removePlugin(plugin)
+                .then(() => {
+                  this.broadcast('load', plugin);
+
+                  return this.requestPlugin(plugin, {
+                    hotload: true,
+                  });
+                })
+                .catch(err => {
+                  console.warn(err);
                 });
-              })
-              .catch(err => {
+            };
+            watcher.on('change', change);
+            watcher.once('close', () => {
+              watcher.removeListener('change', change);
+            });
+            watcher.watch(err => {
+              if (err) {
                 console.warn(err);
-              });
-          };
-          watcher.on('change', change);
-          watcher.once('close', () => {
-            watcher.removeListener('change', change);
-          });
-          watcher.watch(err => {
-            if (err) {
-              console.warn(err);
-            }
-          });
+              }
+            });
+            this.watchers[plugin] = watcher;
+          }
 
-          return watcher;
-        } else {
-          return null;
-        }
-      })();
-      this.watchers[plugin] = watcher;
+          cb();
+        })
+        .catch(err => {
+          cb(err);
+        });
+    } else {
+      cb();
     }
   }
 
@@ -984,8 +997,9 @@ class ArchaeServer extends EventEmitter {
 }
 
 class ArchaePather {
-  constructor(dirname, installDirectory) {
+  constructor(dirname, pluginsDirectory, installDirectory) {
     this.dirname = dirname;
+    this.pluginsDirectory = pluginsDirectory;
     this.installDirectory = installDirectory;
   }
 
@@ -1000,6 +1014,27 @@ class ArchaePather {
 
   getAbsoluteModulePath(module) {
     return this.getDirectAbsoluteModulePath(path.isAbsolute(module) ? module.replace(/[\/\\]/g, '_') : this.getModuleName(module));
+  }
+
+  requestModulePath(module) {
+    const {dirname, pluginsDirectory} = this;
+
+    if (path.isAbsolute(module)) {
+      return Promise.resolve('file:' + path.join(dirname, module));
+    } else {
+      return new Promise((accept, reject) => {
+        const moduleName = this.getModuleName(module);
+        fs.lstat(path.join(dirname, pluginsDirectory, moduleName, 'package.json'), err => {
+          if (!err) {
+            accept('file:' + path.join(dirname, pluginsDirectory, moduleName));
+          } else if (err.code === 'ENOENT') {
+            accept(module);
+          } else {
+            reject(err);
+          }
+        });
+      });
+    }
   }
 
   requestInstalledModulePath(module) {
@@ -1093,9 +1128,8 @@ class ArchaePather {
 }
 
 class ArchaeInstaller {
-  constructor(dirname, pluginsDirectory, dataDirectory, installDirectory, pather, hotload) {
+  constructor(dirname, dataDirectory, installDirectory, pather, hotload) {
     this.dirname = dirname;
-    this.pluginsDirectory = pluginsDirectory;
     this.dataDirectory = dataDirectory;
     this.installDirectory = installDirectory;
     this.pather = pather;
@@ -1112,7 +1146,7 @@ class ArchaeInstaller {
   }
 
   addModules(modules, force, cb) {
-    const {dirname, pluginsDirectory, installDirectory, pather, fsHash} = this;
+    const {dirname, installDirectory, pather, fsHash} = this;
 
     const _writeFile = (p, d) => new Promise((accept, reject) => {
       mkdirp(path.dirname(p), err => {
@@ -1157,22 +1191,6 @@ class ArchaeInstaller {
       return Promise.all(modules.map(module => {
         const _ensurePackageJson = module => _writeFile(path.join(pather.getAbsoluteModulePath(module), 'package.json'), '{}');
         const _install = module => {
-          const _requestModulePath = () => new Promise((accept, reject) => {
-            if (path.isAbsolute(module)) {
-              accept('file:' + path.join(dirname, module));
-            } else {
-              const moduleName = pather.getModuleName(module);
-              fs.lstat(path.join(dirname, pluginsDirectory, moduleName, 'package.json'), err => {
-                if (!err) {
-                  accept('file:' + path.join(dirname, pluginsDirectory, moduleName));
-                } else if (err.code === 'ENOENT') {
-                  accept(module);
-                } else {
-                  reject(err);
-                }
-              });
-            }
-          });
           const _requestInstall = modulePath => new Promise((accept, reject) => {
             const npmInstall = child_process.spawn(
               npmCommands.install.cmd[0],
@@ -1199,7 +1217,7 @@ class ArchaeInstaller {
               reject(err);
             });
           });
-          return _requestModulePath()
+          return pather.requestModulePath(module)
             .then(modulePath => _requestInstall(modulePath));
         };
         const _build = module => {
