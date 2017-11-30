@@ -429,7 +429,7 @@ class ArchaeServer extends EventEmitter {
   watchPlugin(plugin, {hotload}) {
     if (this.watchers[plugin] === undefined) {
       const watcher = (() => {
-        if (this.hotload && hotload && /^\//.test(plugin)) {
+        if (this.hotload && hotload && path.isAbsolute(plugin)) {
           const {dirname} = this;
           const moduleDirectoryPath = path.join(dirname, plugin);
           const watcher = new watchr.Watcher(moduleDirectoryPath);
