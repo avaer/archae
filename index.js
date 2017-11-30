@@ -141,7 +141,7 @@ class ArchaeServer extends EventEmitter {
 
     const pather = new ArchaePather(dirname, installDirectory);
     this.pather = pather;
-    const installer = new ArchaeInstaller(dirname, dataDirectory, installDirectory, pather, hotload);
+    const installer = new ArchaeInstaller(dirname, pluginsDirectory, dataDirectory, installDirectory, pather, hotload);
     this.installer = installer;
 
     const auther = (() => {
@@ -684,7 +684,7 @@ class ArchaeServer extends EventEmitter {
 
       // archae bundles
       const _serveJsFile = (req, res, {module, build = null}) => {
-        const srcPath = path.join(pather.getDirectAbsoluteModulePath(module), '.archae', (build ? path.join('build', build) : 'client') + '.js');
+        const srcPath = path.join(pather.getAbsoluteModulePath(module), '.archae', (build ? path.join('build', build) : 'client') + '.js');
 
         fs.readFile(srcPath, (err, d) => {
           if (!err) {
@@ -989,13 +989,17 @@ class ArchaePather {
     this.installDirectory = installDirectory;
   }
 
+  getModuleName(module) {
+    return module.replace(/@.*$/, '');
+  }
+
   getDirectAbsoluteModulePath(moduleFileName) {
     const {dirname, installDirectory} = this;
     return path.join(dirname, installDirectory, 'plugins', moduleFileName);
   }
 
   getAbsoluteModulePath(module) {
-    return this.getDirectAbsoluteModulePath(path.isAbsolute(module) ? module.replace(/[\/\\]/g, '_') : module);
+    return this.getDirectAbsoluteModulePath(path.isAbsolute(module) ? module.replace(/[\/\\]/g, '_') : this.getModuleName(module));
   }
 
   requestInstalledModulePath(module) {
@@ -1089,8 +1093,9 @@ class ArchaePather {
 }
 
 class ArchaeInstaller {
-  constructor(dirname, dataDirectory, installDirectory, pather, hotload) {
+  constructor(dirname, pluginsDirectory, dataDirectory, installDirectory, pather, hotload) {
     this.dirname = dirname;
+    this.pluginsDirectory = pluginsDirectory;
     this.dataDirectory = dataDirectory;
     this.installDirectory = installDirectory;
     this.pather = pather;
@@ -1107,7 +1112,7 @@ class ArchaeInstaller {
   }
 
   addModules(modules, force, cb) {
-    const {dirname, installDirectory, pather, fsHash} = this;
+    const {dirname, pluginsDirectory, installDirectory, pather, fsHash} = this;
 
     const _writeFile = (p, d) => new Promise((accept, reject) => {
       mkdirp(path.dirname(p), err => {
@@ -1151,39 +1156,52 @@ class ArchaeInstaller {
     const _requestNpmInstall = modules => {
       return Promise.all(modules.map(module => {
         const _ensurePackageJson = module => _writeFile(path.join(pather.getAbsoluteModulePath(module), 'package.json'), '{}');
-        const _install = module => new Promise((accept, reject) => {
-          const modulePath = (() => {
+        const _install = module => {
+          const _requestModulePath = () => new Promise((accept, reject) => {
             if (path.isAbsolute(module)) {
-              return 'file:' + path.join(dirname, module);
+              accept('file:' + path.join(dirname, module));
             } else {
-              return module;
-            }
-          })();
-          const npmInstall = child_process.spawn(
-            npmCommands.install.cmd[0],
-            npmCommands.install.cmd.slice(1).concat([
-              modulePath,
-              '--production',
-              '--mutex', 'file:' + path.join(os.tmpdir(), '.archae-yarn-lock'),
-            ]),
-            {
-              cwd: path.join(pather.getAbsoluteModulePath(module)),
-              env: process.env,
-            }
-          );
-          npmInstall.stdout.pipe(process.stdout);
-          npmInstall.stderr.pipe(process.stderr);
-          npmInstall.on('exit', code => {
-            if (code === 0) {
-              accept();
-            } else {
-              reject(new Error('npm install error: ' + code));
+              const moduleName = pather.getModuleName(module);
+              fs.lstat(path.join(dirname, pluginsDirectory, moduleName, 'package.json'), err => {
+                if (!err) {
+                  accept('file:' + path.join(dirname, pluginsDirectory, moduleName));
+                } else if (err.code === 'ENOENT') {
+                  accept(module);
+                } else {
+                  reject(err);
+                }
+              });
             }
           });
-          npmInstall.on('error', err => {
-            reject(err);
+          const _requestInstall = modulePath => new Promise((accept, reject) => {
+            const npmInstall = child_process.spawn(
+              npmCommands.install.cmd[0],
+              npmCommands.install.cmd.slice(1).concat([
+                modulePath,
+                '--production',
+                '--mutex', 'file:' + path.join(os.tmpdir(), '.archae-yarn-lock'),
+              ]),
+              {
+                cwd: path.join(pather.getAbsoluteModulePath(module)),
+                env: process.env,
+              }
+            );
+            npmInstall.stdout.pipe(process.stdout);
+            npmInstall.stderr.pipe(process.stderr);
+            npmInstall.on('exit', code => {
+              if (code === 0) {
+                accept();
+              } else {
+                reject(new Error('npm install error: ' + code));
+              }
+            });
+            npmInstall.on('error', err => {
+              reject(err);
+            });
           });
-        });
+          return _requestModulePath()
+            .then(modulePath => _requestInstall(modulePath));
+        };
         const _build = module => {
           const _buildClient = () => {
             return pather.requestPluginClient(module)
