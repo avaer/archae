@@ -32,6 +32,7 @@ const defaultConfig = {
   secure: false,
   hotload: true,
   publicDirectory: null,
+  pluginsDirectory: 'plugins',
   dataDirectory: 'data',
   cryptoDirectory: 'crypto',
   installDirectory: 'installed',
@@ -59,6 +60,7 @@ class ArchaeServer extends EventEmitter {
     secure,
     hotload,
     publicDirectory,
+    pluginsDirectory,
     dataDirectory,
     cryptoDirectory,
     installDirectory,
@@ -92,6 +94,9 @@ class ArchaeServer extends EventEmitter {
 
     publicDirectory = publicDirectory || defaultConfig.publicDirectory;
     this.publicDirectory = publicDirectory;
+
+    pluginsDirectory = pluginsDirectory || defaultConfig.pluginsDirectory;
+    this.pluginsDirectory = pluginsDirectory;
 
     dataDirectory = dataDirectory || defaultConfig.dataDirectory;
     this.dataDirectory = dataDirectory;
