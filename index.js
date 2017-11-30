@@ -1023,8 +1023,7 @@ class ArchaePather {
   }
 
   getLocalModulePath(module) {
-    const {dirname} = this;
-    return path.join(dirname, module);
+    return path.join(this.dirname, module);
   }
 
   getLocalModulePackageJsonPath(module) {
@@ -1032,8 +1031,6 @@ class ArchaePather {
   }
 
   requestPackageJsonFileName(plugin, packageJsonFileNameKey) {
-    const {dirname, installDirectory} = this;
-
     return this.requestInstalledModulePath(plugin)
       .then(installedPath => new Promise((accept, reject) => {
         const packageJsonPath = path.join(installedPath, 'package.json');
@@ -1052,8 +1049,6 @@ class ArchaePather {
   }
 
   requestPackageJsonFileNames(plugin, packageJsonFileNamesKey) {
-    const {dirname, installDirectory} = this;
-
     return this.requestInstalledModulePath(plugin)
       .then(installedPath => new Promise((accept, reject) => {
         const packageJsonPath = path.join(installedPath, 'package.json');
