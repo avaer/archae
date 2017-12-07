@@ -264,9 +264,7 @@ class ArchaeServer extends EventEmitter {
 
   installPlugins(plugins, {force = false} = {}) {
     return new Promise((accept, reject) => {
-      const {installer} = this;
-
-      installer.addModules(plugins, force, err => {
+      this.installer.addModules(plugins, force, err => {
         if (!err) {
           accept();
         } else {
@@ -1163,7 +1161,6 @@ class ArchaeInstaller {
         }
       });
     });
-
     const _requestTicket = () => new Promise((accept, reject) => {
       const _release = () => {
         const {numTickets} = this;
@@ -1187,92 +1184,103 @@ class ArchaeInstaller {
       };
       _recurse();
     });
-    const _requestNpmInstall = modules => {
-      return Promise.all(modules.map(module => {
-        const _ensurePackageJson = module => _writeFile(path.join(pather.getAbsoluteModulePath(module), 'package.json'), '{}');
-        const _install = module => {
-          const _requestInstall = modulePath => new Promise((accept, reject) => {
-            const npmInstall = child_process.spawn(
-              npmCommands.install.cmd[0],
-              npmCommands.install.cmd.slice(1).concat([
-                modulePath,
-                '--production',
-                '--mutex', 'file:' + path.join(os.tmpdir(), '.archae-yarn-lock'),
-              ]),
-              {
-                cwd: path.join(pather.getAbsoluteModulePath(module)),
-                env: process.env,
-              }
-            );
-            npmInstall.stdout.pipe(process.stdout);
-            npmInstall.stderr.pipe(process.stderr);
-            npmInstall.on('exit', code => {
-              if (code === 0) {
-                accept();
+    const _requestNpmInstall = (modules, modulePaths) => Promise.all(modules.map((module, index) => {
+      const modulePath = modulePaths[index];
+
+      const _ensurePackageJson = () => _writeFile(path.join(pather.getAbsoluteModulePath(module), 'package.json'), '{}');
+      const _install = () => new Promise((accept, reject) => {
+        const npmInstall = child_process.spawn(
+          npmCommands.install.cmd[0],
+          npmCommands.install.cmd.slice(1).concat([
+            modulePath,
+            '--production',
+            '--mutex', 'file:' + path.join(os.tmpdir(), '.archae-yarn-lock'),
+          ]),
+          {
+            cwd: path.join(pather.getAbsoluteModulePath(module)),
+            env: process.env,
+          }
+        );
+        npmInstall.stdout.pipe(process.stdout);
+        npmInstall.stderr.pipe(process.stderr);
+        npmInstall.on('exit', code => {
+          if (code === 0) {
+            accept();
+          } else {
+            reject(new Error('npm install error: ' + code));
+          }
+        });
+        npmInstall.on('error', err => {
+          reject(err);
+        });
+      });
+      const _build = () => {
+        const _buildClient = () => {
+          return pather.requestPluginClient(module)
+            .then(clientFileName => {
+              if (typeof clientFileName === 'string') {
+                const srcPath = clientFileName;
+                const dstPath = path.join(pather.getAbsoluteModulePath(module), '.archae', 'client.js');
+
+                return _requestRollup(srcPath)
+                  .then(code => _writeFile(dstPath, code))
               } else {
-                reject(new Error('npm install error: ' + code));
+                return Promise.resolve();
               }
             });
-            npmInstall.on('error', err => {
-              reject(err);
+        };
+        const _buildBuilds = () => {
+          return pather.requestPluginBuilds(module)
+            .then(buildFileNames => {
+              if (buildFileNames) {
+                return Promise.all(buildFileNames.map(({src, dst}) =>
+                  _requestRollup(src)
+                    .then(code => _writeFile(path.join(pather.getAbsoluteModulePath(module), '.archae', 'build', dst + '.js'), code))
+                ));
+              } else {
+                return Promise.resolve([]);
+              }
             });
-          });
-          return pather.requestModulePath(module)
-            .then(modulePath => _requestInstall(modulePath));
-        };
-        const _build = module => {
-          const _buildClient = () => {
-            return pather.requestPluginClient(module)
-              .then(clientFileName => {
-                if (typeof clientFileName === 'string') {
-                  const srcPath = clientFileName;
-                  const dstPath = path.join(pather.getAbsoluteModulePath(module), '.archae', 'client.js');
-
-                  return _requestRollup(srcPath)
-                    .then(code => _writeFile(dstPath, code))
-                } else {
-                  return Promise.resolve();
-                }
-              });
-          };
-          const _buildBuilds = () => {
-            return pather.requestPluginBuilds(module)
-              .then(buildFileNames => {
-                if (buildFileNames) {
-                  return Promise.all(buildFileNames.map(({src, dst}) =>
-                    _requestRollup(src)
-                      .then(code => _writeFile(path.join(pather.getAbsoluteModulePath(module), '.archae', 'build', dst + '.js'), code))
-                  ));
-                } else {
-                  return Promise.resolve([]);
-                }
-              });
-          };
-
-          return Promise.all([
-            _buildClient(),
-            _buildBuilds(),
-          ]);
         };
 
-        return _requestTicket()
-          .then(release => {
-            return _ensurePackageJson(module)
-              .then(() => _install(module))
-              .then(() => _build(module))
-              .then(() => {
-                release();
-              })
-              .catch(err => {
-                release();
+        return Promise.all([
+          _buildClient(),
+          _buildBuilds(),
+        ]);
+      };
 
-                return Promise.reject(err);
-              });
-          });
-      }));
-    };
+      return _requestTicket()
+        .then(release => {
+          return _ensurePackageJson()
+            .then(() => _install())
+            .then(() => _build())
+            .then(() => {
+              release();
+            })
+            .catch(err => {
+              release();
 
-    fsHash.updateAll(modules, modules => _requestNpmInstall(modules))
+              return Promise.reject(err);
+            });
+        });
+    }));
+
+    Promise.all(modules.map(module => pather.requestModulePath(module)))
+      .then(modulePaths => {
+        const rawModulePaths = modulePaths.map(modulePath => {
+          const match = modulePath.match(/^file:(.+)$/);
+          if (match) {
+            return match[1];
+          } else {
+            return modulePath;
+          }
+        });
+
+        return fsHash.updateAll(rawModulePaths, bits => _requestNpmInstall(
+          modules.filter((module, index) => bits[index]),
+          modulePaths.filter((modulePath, index) => bits[index])
+        ));
+      })
       .then(() => {
         cb();
       })
