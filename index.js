@@ -1132,10 +1132,8 @@ class ArchaeInstaller {
     this.installDirectory = installDirectory;
     this.pather = pather;
     this.fsHash = hotload ? fshash({
-      basePath: dirname,
       dataPath: path.join(dataDirectory, 'mod-hashes.json'),
     }) : _makeFakeFsHash({
-      basePath: dirname,
       pather,
     });
 
@@ -1310,7 +1308,7 @@ class ArchaeInstaller {
   }
 }
 
-const _makeFakeFsHash = ({basePath, pather}) => ({
+const _makeFakeFsHash = ({pather}) => ({
   updateAll: (ps, fn) => {
     ps = ps.slice().sort();
 
