@@ -989,7 +989,6 @@ class ArchaeServer extends EventEmitter {
               ))
               .then(offlinePluginsCodes => offlinePluginsCodes.filter(offlinePluginsCode => offlinePluginsCode !== null))
               .then(offlinePluginsCodes =>
-                `window.startTime = ${Date.now()};\n` +
                 `window.offline = true;\n` +
                 `window.plugins = {};\n` +
                 offlinePluginsCodes.map(({plugin, codeString}) =>
@@ -1004,7 +1003,9 @@ class ArchaeServer extends EventEmitter {
           }
         })
         .then(codeString => {
-          codeString = this.indexJsPrefix + codeString;
+          codeString = this.indexJsPrefix +
+            `window.startTime = ${Date.now()};\n` +
+            codeString;
 
           const codeObject = new String(codeString);
           codeObject.etag = etag(codeString);
