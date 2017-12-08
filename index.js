@@ -35,7 +35,7 @@ const defaultConfig = {
   pluginsDirectory: 'plugins',
   dataDirectory: 'data',
   cryptoDirectory: 'crypto',
-  installDirectory: 'installed',
+  installDirectory: 'data/installed',
   indexJsPrefix: '',
   indexJsFiles: [],
   password: null,
