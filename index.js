@@ -509,7 +509,14 @@ class ArchaeServer extends EventEmitter {
   }
 
   requestPluginPackageJson(plugin) {
-    return this.requestPlugin(plugin, {force: true, offline: true})
+    const _build = () => {
+      if (!/^_/.test(plugin)) {
+        return this.requestPlugin(plugin, {force: true, offline: true});
+      } else {
+        return Promise.resolve();
+      }
+    };
+    return _build()
       .then(() => new Promise((accept, reject) => {
         const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), 'node_modules', plugin, 'package.json');
         fs.readFile(srcPath, 'utf8', (err, d) => {
@@ -525,7 +532,14 @@ class ArchaeServer extends EventEmitter {
   }
 
   requestPluginBundle(plugin) {
-    return this.requestPlugin(plugin, {force: true, offline: true})
+    const _build = () => {
+      if (!/^_/.test(plugin)) {
+        return this.requestPlugin(plugin, {force: true, offline: true});
+      } else {
+        return Promise.resolve();
+      }
+    };
+    return _build()
       .then(() => new Promise((accept, reject) => {
         const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'client.js');
         fs.readFile(srcPath, 'utf8', (err, codeString) => {
@@ -541,9 +555,16 @@ class ArchaeServer extends EventEmitter {
   }
 
   requestPluginServe(plugin, serve) {
-    return this.requestPlugin(plugin, {force: true, offline: true})
+    const _build = () => {
+      if (!/^_/.test(plugin)) {
+        return this.requestPlugin(plugin, {force: true, offline: true});
+      } else {
+        return Promise.resolve();
+      }
+    };
+    return _build()
       .then(() => new Promise((accept, reject) => {
-        const srcPath = path.join(pather.getAbsoluteModulePath(plugin), '.archae', 'serve', serve);
+        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'serve', serve);
         fs.readFile(srcPath, (err, d) => {
           if (!err) {
             accept(d);
@@ -557,9 +578,16 @@ class ArchaeServer extends EventEmitter {
   }
 
   requestPluginBuild(plugin, build) {
-    return this.requestPlugin(plugin, {force: true, offline: true})
+    const _build = () => {
+      if (!/^_/.test(plugin)) {
+        return this.requestPlugin(plugin, {force: true, offline: true});
+      } else {
+        return Promise.resolve();
+      }
+    };
+    return _build()
       .then(() => new Promise((accept, reject) => {
-        const srcPath = path.join(pather.getAbsoluteModulePath(module), '.archae', (build ? path.join('build', build) : 'client') + '.js');
+        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', (build ? path.join('build', build) : 'client') + '.js');
         fs.readFile(srcPath, (err, d) => {
           if (!err) {
             accept(d);
