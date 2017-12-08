@@ -1418,7 +1418,9 @@ class ArchaeInstaller {
         return fsHash.updateAll(rawModulePaths, bits => _requestNpmInstall(
           modules.filter((module, index) => bits[index]),
           modulePaths.filter((modulePath, index) => bits[index])
-        ));
+        ), {
+          force,
+        });
       })
       .then(() => {
         cb();
