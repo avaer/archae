@@ -971,8 +971,45 @@ class ArchaeServer extends EventEmitter {
       path.join(__dirname, 'lib', 'archae.js'),
     ].concat(this.indexJsFiles))
       .then(codeString => {
-        codeString = `window.metadata = ${JSON.stringify(this.metadata)};\n` +
-          this.indexJsPrefix +
+        if (this.offline) {
+          return this.requestPlugins(this.offlinePlugins, {offline: true})
+            .then(() => Promise.all(
+              this.offlinePlugins.map(plugin =>
+                new Promise((accept, reject) => {
+                  const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'client.js');
+                  fs.readFile(srcPath, 'utf8', (err, codeString) => {
+                    if (!err) {
+                      accept({
+                        plugin,
+                        codeString,
+                      });
+                    } else if (err.code === 'ENOENT') {
+                      accept(null);
+                    } else {
+                      reject(err);
+                    }
+                  });
+                })
+              )
+            ))
+            .then(offlinePluginsCodes => offlinePluginsCodes.filter(offlinePluginsCode => offlinePluginsCode !== null))
+            .then(offlinePluginsCodes =>
+              `window.offline = true;\n` +
+              `window.plugins = {};\n` +
+              offlinePluginsCodes.map(({plugin, codeString}) =>
+                `window.module = {};\n` +
+                codeString +
+                `window.plugins[${JSON.stringify(plugin)}] = window.module.exports;\n`
+              ).join('') +
+              codeString
+            );
+        } else {
+          return Promise.resolve(codeString);
+        }
+      })
+      .then(codeString => {
+        codeString = this.indexJsPrefix +
+          `window.metadata = ${JSON.stringify(this.metadata)};\n` +
           codeString;
 
         const codeObject = new String(codeString);
