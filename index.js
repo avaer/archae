@@ -508,13 +508,61 @@ class ArchaeServer extends EventEmitter {
     delete this.watchers[plugin];
   }
 
+  requestPluginPackageJson(plugin) {
+    return this.requestPlugin(plugin, {force: true, offline: true})
+      .then(() => new Promise((accept, reject) => {
+        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), 'node_modules', plugin, 'package.json');
+        fs.readFile(srcPath, 'utf8', (err, d) => {
+          if (!err) {
+            accept(d);
+          } else if (err.code === 'ENOENT') {
+            accept(null);
+          } else {
+            reject(err);
+          }
+        });
+      }));
+  }
+
   requestPluginBundle(plugin) {
-    return this.requestPlugin(plugin, {offline: true})
+    return this.requestPlugin(plugin, {force: true, offline: true})
       .then(() => new Promise((accept, reject) => {
         const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'client.js');
         fs.readFile(srcPath, 'utf8', (err, codeString) => {
           if (!err) {
             accept(codeString);
+          } else if (err.code === 'ENOENT') {
+            accept(null);
+          } else {
+            reject(err);
+          }
+        });
+      }));
+  }
+
+  requestPluginServe(plugin, serve) {
+    return this.requestPlugin(plugin, {force: true, offline: true})
+      .then(() => new Promise((accept, reject) => {
+        const srcPath = path.join(pather.getAbsoluteModulePath(plugin), '.archae', 'serve', serve);
+        fs.readFile(srcPath, (err, d) => {
+          if (!err) {
+            accept(d);
+          } else if (err.code === 'ENOENT') {
+            accept(null);
+          } else {
+            reject(err);
+          }
+        });
+      }));
+  }
+
+  requestPluginBuild(plugin, build) {
+    return this.requestPlugin(plugin, {force: true, offline: true})
+      .then(() => new Promise((accept, reject) => {
+        const srcPath = path.join(pather.getAbsoluteModulePath(module), '.archae', (build ? path.join('build', build) : 'client') + '.js');
+        fs.readFile(srcPath, (err, d) => {
+          if (!err) {
+            accept(d);
           } else if (err.code === 'ENOENT') {
             accept(null);
           } else {
@@ -729,36 +777,9 @@ class ArchaeServer extends EventEmitter {
       });
 
       // archae bundles
-      const _serveJsFile = (req, res, {module, build = null}) => {
-        const srcPath = path.join(pather.getAbsoluteModulePath(module), '.archae', (build ? path.join('build', build) : 'client') + '.js');
-
-        fs.readFile(srcPath, (err, d) => {
-          if (!err) {
-            res.type('application/javascript');
-
-            const et = etag(d); // XXX these can be precomputed
-
-            if (req.get('If-None-Match') === et) {
-              res.status(304);
-              res.send();
-            } else {
-              res.set('Etag', et);
-              res.send(d);
-            }
-          } else if (err.code === 'ENOENT') {
-            res.status(404);
-            res.send();
-          } else {
-            res.status(500);
-            res.send(err.stack);
-          }
-        });
-      };
-      const _serveFile = (req, res, {module, serve}) => {
-        const srcPath = path.join(pather.getAbsoluteModulePath(module), '.archae', 'serve', serve);
-
-        fs.readFile(srcPath, (err, d) => {
-          if (!err) {
+      const _serveFile = (req, res, {module, serve}) => this.requestPluginServe(module, serve)
+        .then(d => {
+          if (d !== null) {
             res.type(serve);
 
             const et = etag(d);
@@ -770,15 +791,38 @@ class ArchaeServer extends EventEmitter {
               res.set('Etag', et);
               res.send(d);
             }
-          } else if (err.code === 'ENOENT') {
-            res.status(404);
-            res.send();
           } else {
-            res.status(500);
-            res.send(err.stack);
+            res.status(404);
+            res.end(http.STATUS_CODES[404]);
           }
+        })
+        .catch(err => {
+          res.status(500);
+          res.end(err.stack);
         });
-      };
+      const _serveJsFile = (req, res, {module, build = null}) => this.requestPluginBuild(module, build)
+        .then(d => {
+          if (d !== null) {
+            res.type('application/javascript');
+
+            const et = etag(d); // XXX these can be precomputed
+
+            if (req.get('If-None-Match') === et) {
+              res.status(304);
+              res.send();
+            } else {
+              res.set('Etag', et);
+              res.send(d);
+            }
+          } else {
+            res.status(404);
+            res.end(http.STATUS_CODES[404]);
+          }
+        })
+        .catch(err => {
+          res.status(500);
+          res.end(err.stack);
+        });
 
       app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+)\.js$/, (req, res, next) => {
         const {params} = req;
