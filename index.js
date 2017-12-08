@@ -994,24 +994,26 @@ class ArchaeServer extends EventEmitter {
             ))
             .then(offlinePluginsCodes => offlinePluginsCodes.filter(offlinePluginsCode => offlinePluginsCode !== null))
             .then(offlinePluginsCodes =>
+              `window.metadata = ${JSON.stringify(this.metadata, null, 2)};\n` +
+              this.indexJsPrefix +
               `window.offline = true;\n` +
               `window.plugins = {};\n` +
+              `window.module = {};\n` +
               offlinePluginsCodes.map(({plugin, codeString}) =>
-                `window.module = {};\n` +
                 codeString +
                 `window.plugins[${JSON.stringify(plugin)}] = window.module.exports;\n`
               ).join('') +
               codeString
             );
         } else {
-          return Promise.resolve(codeString);
+          return Promise.resolve(
+            `window.metadata = ${JSON.stringify(this.metadata, null, 2)};\n` +
+            this.indexJsPrefix +
+            codeString
+          );
         }
       })
       .then(codeString => {
-        codeString = this.indexJsPrefix +
-          `window.metadata = ${JSON.stringify(this.metadata)};\n` +
-          codeString;
-
         const codeObject = new String(codeString);
         codeObject.etag = etag(codeString);
         return Promise.resolve(codeObject);
