@@ -73,6 +73,8 @@ class ArchaeServer extends EventEmitter {
     password,
     locked,
     cors,
+    offline,
+    offlinePlugins,
     staticSite,
   } = {}) {
     super();
@@ -133,6 +135,12 @@ class ArchaeServer extends EventEmitter {
 
     cors = cors || false;
     this.cors = cors;
+
+    offline = offline || false;
+    this.offline = offline;
+
+    offlinePlugins = offlinePlugins || [];
+    this.offlinePlugins = offlinePlugins;
 
     staticSite = staticSite || false;
     this.staticSite = staticSite;
