@@ -270,8 +270,8 @@ class ArchaeServer extends EventEmitter {
     return wss;
   }
 
-  requestPlugin(plugin, {force = false, hotload = false} = {}) {
-    return this.requestPlugins([plugin], {force, hotload})
+  requestPlugin(plugin, {force = false, hotload = false, offline = false} = {}) {
+    return this.requestPlugins([plugin], {force, hotload, offline})
       .then(([plugin]) => Promise.resolve(plugin));
   }
 
