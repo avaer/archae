@@ -508,6 +508,22 @@ class ArchaeServer extends EventEmitter {
     delete this.watchers[plugin];
   }
 
+  requestPluginBundle(plugin) {
+    return this.requestPlugin(plugin, {offline: true})
+      .then(() => new Promise((accept, reject) => {
+        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'client.js');
+        fs.readFile(srcPath, 'utf8', (err, codeString) => {
+          if (!err) {
+            accept(codeString);
+          } else if (err.code === 'ENOENT') {
+            accept(null);
+          } else {
+            reject(err);
+          }
+        });
+      }));
+  }
+
   broadcast(type, result) {
     const e = {
       type,
