@@ -36,6 +36,7 @@ const defaultConfig = {
   dataDirectory: 'data',
   cryptoDirectory: 'crypto',
   installDirectory: 'installed',
+  indexJsPrefix: '',
   indexJsFiles: [],
   password: null,
   metadata: null,
@@ -64,6 +65,7 @@ class ArchaeServer extends EventEmitter {
     dataDirectory,
     cryptoDirectory,
     installDirectory,
+    indexJsPrefix,
     indexJsFiles,
     metadata,
     server,
@@ -108,6 +110,9 @@ class ArchaeServer extends EventEmitter {
 
     installDirectory = installDirectory || defaultConfig.installDirectory;
     this.installDirectory = installDirectory;
+
+    indexJsPrefix = indexJsPrefix || defaultConfig.indexJsPrefix;
+    this.indexJsPrefix = indexJsPrefix;
 
     indexJsFiles = indexJsFiles || defaultConfig.indexJsFiles;
     this.indexJsFiles = indexJsFiles;
@@ -984,6 +989,7 @@ class ArchaeServer extends EventEmitter {
               ))
               .then(offlinePluginsCodes => offlinePluginsCodes.filter(offlinePluginsCode => offlinePluginsCode !== null))
               .then(offlinePluginsCodes =>
+                `window.startTime = ${Date.now()};\n` +
                 `window.offline = true;\n` +
                 `window.plugins = {};\n` +
                 offlinePluginsCodes.map(({plugin, codeString}) =>
@@ -998,6 +1004,8 @@ class ArchaeServer extends EventEmitter {
           }
         })
         .then(codeString => {
+          codeString = this.indexJsPrefix + codeString;
+
           const codeObject = new String(codeString);
           codeObject.etag = etag(codeString);
           return Promise.resolve(codeObject);
