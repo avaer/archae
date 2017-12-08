@@ -15,7 +15,7 @@
     "etag": "^1.8.1",
     "events": "^1.1.1",
     "express": "^4.16.2",
-    "fshash": "0.0.13",
+    "fshash": "0.0.14",
     "getport": "^0.1.0",
     "http-auth": "^3.2.3",
     "mkdirp": "^0.5.1",
