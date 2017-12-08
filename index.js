@@ -733,6 +733,31 @@ class ArchaeServer extends EventEmitter {
           }
         });
       };
+      const _serveFile = (req, res, {module, serve}) => {
+        const srcPath = path.join(pather.getAbsoluteModulePath(module), '.archae', 'serve', serve);
+
+        fs.readFile(srcPath, (err, d) => {
+          if (!err) {
+            res.type(serve);
+
+            const et = etag(d);
+
+            if (req.get('If-None-Match') === et) {
+              res.status(304);
+              res.send();
+            } else {
+              res.set('Etag', et);
+              res.send(d);
+            }
+          } else if (err.code === 'ENOENT') {
+            res.status(404);
+            res.send();
+          } else {
+            res.status(500);
+            res.send(err.stack);
+          }
+        });
+      };
 
       app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+)\.js$/, (req, res, next) => {
         const {params} = req;
@@ -745,6 +770,21 @@ class ArchaeServer extends EventEmitter {
           });
         } else {
           next();
+        }
+      });
+      app.get(/^\/archae\/plugins\/([^\/]+?)\/serve\/(.+)$/, (req, res, next) => {
+        const {params} = req;
+        const module = params[0];
+        const serve = params[1];
+
+        if (!/\.\./.test(serve)) {
+          _serveFile(req, res, {
+            module,
+            serve,
+          });
+        } else {
+          res.status(400);
+          res.send();
         }
       });
       app.get(/^\/archae\/plugins\/([^\/]+?)\/build\/(.+)\.js$/, (req, res, next) => {
@@ -1171,6 +1211,10 @@ class ArchaePather {
     return this.requestPackageJsonFileName(plugin, 'client');
   }
 
+  requestPluginServes(plugin) {
+    return this.requestPackageJsonFileNames(plugin, 'serves');
+  }
+
   requestPluginBuilds(plugin) {
     return this.requestPackageJsonFileNames(plugin, 'builds');
   }
@@ -1199,6 +1243,21 @@ class ArchaeInstaller {
       mkdirp(path.dirname(p), err => {
         if (!err) {
           fs.writeFile(p, d, err => {
+            if (!err) {
+              accept();
+            } else {
+              reject(err);
+            }
+          });
+        } else {
+          reject(err);
+        }
+      });
+    });
+    const _copyFile = (s, d) => new Promise((accept, reject) => {
+      mkdirp(path.dirname(d), err => {
+        if (!err) {
+          fs.copyFile(s, d, err => {
             if (!err) {
               accept();
             } else {
@@ -1278,6 +1337,18 @@ class ArchaeInstaller {
               }
             });
         };
+        const _copyServes = () => {
+          return pather.requestPluginServes(module)
+            .then(serveFileNames => {
+              if (serveFileNames) {
+                return Promise.all(serveFileNames.map(({src, dst}) =>
+                  _copyFile(src, path.join(pather.getAbsoluteModulePath(module), '.archae', 'serve', dst))
+                ));
+              } else {
+                return Promise.resolve([]);
+              }
+            });
+        };
         const _buildBuilds = () => {
           return pather.requestPluginBuilds(module)
             .then(buildFileNames => {
@@ -1294,6 +1365,7 @@ class ArchaeInstaller {
 
         return Promise.all([
           _buildClient(),
+          _copyServes(),
           _buildBuilds(),
         ]);
       };
