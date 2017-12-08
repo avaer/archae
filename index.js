@@ -715,7 +715,7 @@ class ArchaeServer extends EventEmitter {
           if (!err) {
             res.type('application/javascript');
 
-            const et = etag(d);
+            const et = etag(d); // XXX these can be precomputed
 
             if (req.get('If-None-Match') === et) {
               res.status(304);
