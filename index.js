@@ -282,7 +282,7 @@ class ArchaeServer extends EventEmitter {
     });
   }
 
-  requestPlugins(plugins, {force = false, hotload = false} = {}) {
+  requestPlugins(plugins, {force = false, hotload = false, offline = false} = {}) {
     return new Promise((accept, reject) => {
       const cb = (err, result) => {
         if (!err) {
@@ -350,7 +350,13 @@ class ArchaeServer extends EventEmitter {
       })));
 
       _installPlugins(plugins)
-        .then(() => _bootPlugins(plugins))
+        .then(() => {
+          if (!offline) {
+            return _bootPlugins(plugins);
+          } else {
+            return Promise.resolve(plugins);
+          }
+        })
         .then(pluginApis => {
           cb(null, pluginApis);
         })
@@ -914,6 +920,43 @@ class ArchaeServer extends EventEmitter {
       this.publicBundlePromise = _requestRollup([
         path.join(__dirname, 'lib', 'archae.js'),
       ].concat(this.indexJsFiles))
+        .then(codeString => {
+          if (this.offline) {
+            return this.requestPlugins(this.offlinePlugins, {offline: true})
+              .then(() => Promise.all(
+                this.offlinePlugins.map(plugin =>
+                  new Promise((accept, reject) => {
+                    const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'client.js');
+                    fs.readFile(srcPath, 'utf8', (err, codeString) => {
+                      if (!err) {
+                        accept({
+                          plugin,
+                          codeString,
+                        });
+                      } else if (err.code === 'ENOENT') {
+                        accept(null);
+                      } else {
+                        reject(err);
+                      }
+                    });
+                  })
+                )
+              ))
+              .then(offlinePluginsCodes => offlinePluginsCodes.filter(offlinePluginsCode => offlinePluginsCode !== null))
+              .then(offlinePluginsCodes =>
+                `window.offline = true;\n` +
+                `window.plugins = {};\n` +
+                offlinePluginsCodes.map(({plugin, codeString}) =>
+                  `window.module = {};\n` +
+                  codeString +
+                  `window.plugins[${JSON.stringify(plugin)}] = window.module.exports;\n`
+                ).join('') +
+                codeString
+              );
+          } else {
+            return Promise.resolve(codeString);
+          }
+        })
         .then(codeString => {
           const codeObject = new String(codeString);
           codeObject.etag = etag(codeString);
