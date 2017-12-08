@@ -950,64 +950,64 @@ class ArchaeServer extends EventEmitter {
     server.on('request', app);
   }
 
+  ensurePublicBundlePromise() {
+    this.publicBundlePromise = _requestRollup([
+      path.join(__dirname, 'lib', 'archae.js'),
+    ].concat(this.indexJsFiles))
+      .then(codeString => {
+        if (this.offline) {
+          return this.requestPlugins(this.offlinePlugins, {offline: true})
+            .then(() => Promise.all(
+              this.offlinePlugins.map(plugin =>
+                new Promise((accept, reject) => {
+                  const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'client.js');
+                  fs.readFile(srcPath, 'utf8', (err, codeString) => {
+                    if (!err) {
+                      accept({
+                        plugin,
+                        codeString,
+                      });
+                    } else if (err.code === 'ENOENT') {
+                      accept(null);
+                    } else {
+                      reject(err);
+                    }
+                  });
+                })
+              )
+            ))
+            .then(offlinePluginsCodes => offlinePluginsCodes.filter(offlinePluginsCode => offlinePluginsCode !== null))
+            .then(offlinePluginsCodes =>
+              `window.offline = true;\n` +
+              `window.plugins = {};\n` +
+              offlinePluginsCodes.map(({plugin, codeString}) =>
+                `window.module = {};\n` +
+                codeString +
+                `window.plugins[${JSON.stringify(plugin)}] = window.module.exports;\n`
+              ).join('') +
+              codeString
+            );
+        } else {
+          return Promise.resolve(codeString);
+        }
+      })
+      .then(codeString => {
+        codeString = this.indexJsPrefix +
+          `window.metadata = ${JSON.stringify(this.metadata)};\n` +
+          codeString;
+
+        const codeObject = new String(codeString);
+        codeObject.etag = etag(codeString);
+        return Promise.resolve(codeObject);
+      })
+      .catch(err => {
+        console.warn(err);
+      });
+
+    return Promise.resolve();
+  }
+
   listen(cb) {
-    const _ensurePublicBundlePromise = () => {
-      this.publicBundlePromise = _requestRollup([
-        path.join(__dirname, 'lib', 'archae.js'),
-      ].concat(this.indexJsFiles))
-        .then(codeString => {
-          if (this.offline) {
-            return this.requestPlugins(this.offlinePlugins, {offline: true})
-              .then(() => Promise.all(
-                this.offlinePlugins.map(plugin =>
-                  new Promise((accept, reject) => {
-                    const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'client.js');
-                    fs.readFile(srcPath, 'utf8', (err, codeString) => {
-                      if (!err) {
-                        accept({
-                          plugin,
-                          codeString,
-                        });
-                      } else if (err.code === 'ENOENT') {
-                        accept(null);
-                      } else {
-                        reject(err);
-                      }
-                    });
-                  })
-                )
-              ))
-              .then(offlinePluginsCodes => offlinePluginsCodes.filter(offlinePluginsCode => offlinePluginsCode !== null))
-              .then(offlinePluginsCodes =>
-                `window.offline = true;\n` +
-                `window.plugins = {};\n` +
-                offlinePluginsCodes.map(({plugin, codeString}) =>
-                  `window.module = {};\n` +
-                  codeString +
-                  `window.plugins[${JSON.stringify(plugin)}] = window.module.exports;\n`
-                ).join('') +
-                codeString
-              );
-          } else {
-            return Promise.resolve(codeString);
-          }
-        })
-        .then(codeString => {
-          codeString = this.indexJsPrefix +
-            `window.startTime = ${Date.now()};\n` +
-            `window.metadata = ${JSON.stringify(this.metadata)};\n` +
-            codeString;
-
-          const codeObject = new String(codeString);
-          codeObject.etag = etag(codeString);
-          return Promise.resolve(codeObject);
-        })
-        .catch(err => {
-          console.warn(err);
-        });
-
-      return Promise.resolve();
-    };
     const _ensureServers = () => Promise.all([
       new Promise((accept, reject) => {
         if (!this.server) {
@@ -1070,7 +1070,7 @@ class ArchaeServer extends EventEmitter {
       });
     });
 
-    _ensurePublicBundlePromise()
+    this.ensurePublicBundlePromise()
       .then(() => _ensureServers())
       .then(() => _mountApp())
       .then(() => _listen())
