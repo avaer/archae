@@ -828,16 +828,6 @@ class ArchaeServer extends EventEmitter {
 
           this.connections.push(c);
 
-          const e = {
-            type: 'init',
-            error: null,
-            result: {
-              metadata,
-            },
-          };
-          const es = JSON.stringify(e);
-          c.send(es);
-
           c.on('message', s => {
             const m = JSON.parse(s);
 
@@ -1005,6 +995,7 @@ class ArchaeServer extends EventEmitter {
         .then(codeString => {
           codeString = this.indexJsPrefix +
             `window.startTime = ${Date.now()};\n` +
+            `window.metadata = ${JSON.stringify(this.metadata)};\n` +
             codeString;
 
           const codeObject = new String(codeString);
