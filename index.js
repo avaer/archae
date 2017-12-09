@@ -1153,7 +1153,7 @@ class ArchaePather {
   }
 
   getModuleName(module) {
-    return module.replace(/@.*$/, '');
+    return module.replace(/(?!^)@.*$/, '');
   }
 
   getDirectAbsoluteModulePath(moduleFileName) {
