@@ -509,72 +509,48 @@ class ArchaeServer extends EventEmitter {
   }
 
   requestPluginBundle(plugin) {
-    const _build = () => {
-      if (!/^_/.test(plugin)) {
-        return this.requestPlugin(plugin, {force: true, offline: true});
-      } else {
-        return Promise.resolve();
-      }
-    };
-    return _build()
-      .then(() => new Promise((accept, reject) => {
-        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'client.js');
-        fs.readFile(srcPath, 'utf8', (err, codeString) => {
-          if (!err) {
-            accept(codeString);
-          } else if (err.code === 'ENOENT') {
-            accept(null);
-          } else {
-            reject(err);
-          }
-        });
-      }));
+    return new Promise((accept, reject) => {
+      const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'client.js');
+      fs.readFile(srcPath, 'utf8', (err, codeString) => {
+        if (!err) {
+          accept(codeString);
+        } else if (err.code === 'ENOENT') {
+          accept(null);
+        } else {
+          reject(err);
+        }
+      });
+    });
   }
 
   requestPluginServe(plugin, serve) {
-    const _build = () => {
-      if (!/^_/.test(plugin)) {
-        return this.requestPlugin(plugin, {force: true, offline: true});
-      } else {
-        return Promise.resolve();
-      }
-    };
-    return _build()
-      .then(() => new Promise((accept, reject) => {
-        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'serve', serve);
-        fs.readFile(srcPath, (err, d) => {
-          if (!err) {
-            accept(d);
-          } else if (err.code === 'ENOENT') {
-            accept(null);
-          } else {
-            reject(err);
-          }
-        });
-      }));
+    return new Promise((accept, reject) => {
+      const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', 'serve', serve);
+      fs.readFile(srcPath, (err, d) => {
+        if (!err) {
+          accept(d);
+        } else if (err.code === 'ENOENT') {
+          accept(null);
+        } else {
+          reject(err);
+        }
+      });
+    });
   }
 
   requestPluginBuild(plugin, build) {
-    const _build = () => {
-      if (!/^_/.test(plugin)) {
-        return this.requestPlugin(plugin, {force: true, offline: true});
-      } else {
-        return Promise.resolve();
-      }
-    };
-    return _build()
-      .then(() => new Promise((accept, reject) => {
-        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', (build ? path.join('build', build) : 'client') + '.js');
-        fs.readFile(srcPath, (err, d) => {
-          if (!err) {
-            accept(d);
-          } else if (err.code === 'ENOENT') {
-            accept(null);
-          } else {
-            reject(err);
-          }
-        });
-      }));
+    return new Promise((accept, reject) => {
+      const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), '.archae', (build ? path.join('build', build) : 'client') + '.js');
+      fs.readFile(srcPath, (err, d) => {
+        if (!err) {
+          accept(d);
+        } else if (err.code === 'ENOENT') {
+          accept(null);
+        } else {
+          reject(err);
+        }
+      });
+    });
   }
 
   broadcast(type, result) {
