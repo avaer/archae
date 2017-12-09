@@ -554,7 +554,7 @@ class ArchaeServer extends EventEmitter {
       }));
   }
 
-  requestPluginFileStream(plugin, path) {
+  requestPluginFileStream(plugin, p) {
     const _build = () => {
       if (!/^_/.test(plugin)) {
         return this.requestPlugin(plugin, {force: true, offline: true});
@@ -564,7 +564,7 @@ class ArchaeServer extends EventEmitter {
     };
     return _build()
       .then(() => new Promise((accept, reject) => {
-        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), path);
+        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), p);
         return fs.createReadStream(srcPath);
       }));
   }
