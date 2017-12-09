@@ -1156,13 +1156,17 @@ class ArchaePather {
       .replace(/^.+\/([^\/]+)$/, '$1');
   }
 
+  getCleanModuleName(module) {
+    return module.replace(/[\/\\]/g, '_');
+  }
+
   getDirectAbsoluteModulePath(moduleFileName) {
     const {dirname, installDirectory} = this;
     return path.join(dirname, installDirectory, 'plugins', moduleFileName);
   }
 
   getAbsoluteModulePath(module) {
-    return this.getDirectAbsoluteModulePath(path.isAbsolute(module) ? module.replace(/[\/\\]/g, '_') : this.getModuleName(module));
+    return this.getDirectAbsoluteModulePath(path.isAbsolute(module) ? this.getCleanModuleName(module) : this.getModuleName(module));
   }
 
   requestModulePath(module) {
