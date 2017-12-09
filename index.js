@@ -77,7 +77,7 @@ class ArchaeServer extends EventEmitter {
     cors,
     offline,
     offlinePlugins,
-    offlineFiles,
+    offlineFilesString,
     staticSite,
   } = {}) {
     super();
@@ -148,8 +148,8 @@ class ArchaeServer extends EventEmitter {
     offlinePlugins = offlinePlugins || [];
     this.offlinePlugins = offlinePlugins;
 
-    offlineFiles = offlineFiles || [];
-    this.offlineFiles = offlineFiles;
+    offlineFilesString = offlineFilesString || '';
+    this.offlineFilesString = offlineFilesString;
 
     staticSite = staticSite || false;
     this.staticSite = staticSite;
@@ -1069,7 +1069,7 @@ class ArchaeServer extends EventEmitter {
     this.publicSwPromise = new Promise((accept, reject) => {
       fs.readFile(path.join(__dirname, 'lib', 'sw.js'), 'utf8', (err, s) => {
         if (!err) {
-          const codeString = `const files = ${JSON.stringify(this.offlineFiles, null, 2)};\n` + s;
+          const codeString = 'const files = ' + this.offlineFilesString + ';\n' + s;
           const codeObject = new String(codeString);
           codeObject.etag = etag(codeString);
           accept(codeObject);
