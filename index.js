@@ -1367,7 +1367,7 @@ class ArchaeInstaller {
             env: process.env,
           }
         );
-        npmInstall.stdout.pipe(process.stdout);
+        npmInstall.stdout.pipe(process.stderr);
         npmInstall.stderr.pipe(process.stderr);
         npmInstall.on('exit', code => {
           if (code === 0) {
