@@ -554,6 +554,21 @@ class ArchaeServer extends EventEmitter {
       }));
   }
 
+  requestPluginFileStream(plugin, path) {
+    const _build = () => {
+      if (!/^_/.test(plugin)) {
+        return this.requestPlugin(plugin, {force: true, offline: true});
+      } else {
+        return Promise.resolve();
+      }
+    };
+    return _build()
+      .then(() => new Promise((accept, reject) => {
+        const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), path);
+        return fs.createReadStream(srcPath);
+      }));
+  }
+
   requestPluginServe(plugin, serve) {
     const _build = () => {
       if (!/^_/.test(plugin)) {
