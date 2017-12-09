@@ -1049,8 +1049,6 @@ class ArchaeServer extends EventEmitter {
           return Promise.resolve(
             `window.metadata = ${JSON.stringify(this.metadata, null, 2)};\n` +
             this.indexJsPrefix +
-            `window.offline = true;\n` +
-            `window.plugins = {};\n` +
             codeString
           );
         }
