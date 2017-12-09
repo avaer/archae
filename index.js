@@ -1151,7 +1151,9 @@ class ArchaePather {
   }
 
   getModuleName(module) {
-    return module.replace(/(?!^)@.*$/, '');
+    return module
+      .replace(/(?!^)@.*$/, '')
+      .replace(/^.+\/([^\/]+)$/, '$1');
   }
 
   getDirectAbsoluteModulePath(moduleFileName) {
@@ -1185,32 +1187,7 @@ class ArchaePather {
   }
 
   requestInstalledModulePath(module) {
-    return new Promise((accept, reject) => {
-      const {dirname, installDirectory} = this;
-
-      const absolutePath = this.getAbsoluteModulePath(module);
-      fs.readFile(path.join(absolutePath, 'package.json'), 'utf8', (err, s) => {
-        if (!err) {
-          const j = JSON.parse(s);
-          if (j && j.dependencies && typeof j.dependencies === 'object') {
-            const {dependencies} = j;
-            const keys = Object.keys(dependencies);
-
-            if (keys.length > 0) {
-              accept(path.join(absolutePath, 'node_modules', keys[0]));
-            } else {
-              const err = new Error('module package.json corrupted: ' + JSON.stringify({module, absolutePath, packageJson: j}));
-              reject(err);
-            }
-          } else {
-            const err = new Error('module package.json corrupted: ' + JSON.stringify({module, absolutePath, packageJson: j}));
-            reject(err);
-          }
-        } else {
-          reject(err);
-        }
-      });
-    });
+    return Promise.resolve(path.join(this.getAbsoluteModulePath(module), 'node_modules', this.getModuleName(module)));
   }
 
   getLocalModulePath(module) {
