@@ -1047,7 +1047,6 @@ class ArchaeServer extends EventEmitter {
                 codeString +
                 `window.plugins[${JSON.stringify(plugin)}] = window.module.exports;\n`
               ).join('') +
-              `window.files = ${JSON.stringify(this.offlineFiles, null, 2)};\n` +
               codeString
             );
         } else {
@@ -1066,6 +1065,19 @@ class ArchaeServer extends EventEmitter {
       .catch(err => {
         console.warn(err);
       });
+
+    this.publicSwPromise = new Promise((accept, reject) => {
+      fs.readFile(path.join(__dirname, 'lib', 'sw.js'), 'utf8', (err, s) => {
+        if (!err) {
+          const codeString = `const files = ${JSON.stringify(this.offlineFiles, null, 2)};\n` + s;
+          const codeObject = new String(codeString);
+          codeObject.etag = etag(codeString);
+          accept(codeObject);
+        } else {
+          reject(err);
+        }
+      });
+    });
 
     return Promise.resolve();
   }
