@@ -510,7 +510,7 @@ class ArchaeServer extends EventEmitter {
 
   requestPluginPackageJson(plugin) {
     return new Promise((accept, reject) => {
-      const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), 'node_modules', plugin, 'package.json');
+      const srcPath = path.join(this.pather.getAbsoluteModulePath(plugin), 'node_modules', this.pather.getModuleName(plugin), 'package.json');
       fs.readFile(srcPath, 'utf8', (err, d) => {
         if (!err) {
           accept(d);
