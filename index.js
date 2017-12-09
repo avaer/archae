@@ -77,6 +77,7 @@ class ArchaeServer extends EventEmitter {
     cors,
     offline,
     offlinePlugins,
+    offlineFiles,
     staticSite,
   } = {}) {
     super();
@@ -146,6 +147,9 @@ class ArchaeServer extends EventEmitter {
 
     offlinePlugins = offlinePlugins || [];
     this.offlinePlugins = offlinePlugins;
+
+    offlineFiles = offlineFiles || [];
+    this.offlineFiles = offlineFiles;
 
     staticSite = staticSite || false;
     this.staticSite = staticSite;
@@ -1043,6 +1047,7 @@ class ArchaeServer extends EventEmitter {
                 codeString +
                 `window.plugins[${JSON.stringify(plugin)}] = window.module.exports;\n`
               ).join('') +
+              `window.files = ${JSON.stringify(this.offlineFiles, null, 2)};\n` +
               codeString
             );
         } else {
