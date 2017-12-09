@@ -686,26 +686,6 @@ class ArchaeServer extends EventEmitter {
   mountApp() {
     const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, staticSite, pather, auther} = this;
 
-    // cross-origin resoure sharing
-    if (cors) {
-      app.all('*', (req, res, next) => {
-        res.set('Access-Control-Allow-Origin', req.get('Host'));
-        res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-        res.set('Access-Control-Allow-Credentials', 'true');
-
-        next();
-      });
-    }
-
-    // password
-    app.all('*', auther);
-
-    // user public
-    if (publicDirectory) {
-      app.use('/', express.static(path.join(dirname, publicDirectory)));
-    }
-
     class FakeResponse {
       constructor(socket) {
         this.socket = socket;
@@ -753,6 +733,26 @@ class ArchaeServer extends EventEmitter {
     });
 
     if (!staticSite) {
+      // cross-origin resoure sharing
+      if (cors) {
+        app.all('*', (req, res, next) => {
+          res.set('Access-Control-Allow-Origin', req.get('Host'));
+          res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+          res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+          res.set('Access-Control-Allow-Credentials', 'true');
+
+          next();
+        });
+      }
+
+      // password
+      app.all('*', auther);
+
+      // user public
+      if (publicDirectory) {
+        app.use('/', express.static(path.join(dirname, publicDirectory)));
+      }
+
       // archae public
       app.get('/archae/index.js', (req, res, next) => {
         this.publicBundlePromise
