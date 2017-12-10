@@ -42,7 +42,10 @@ const defaultConfig = {
   metadata: null,
 };
 
-const numCpus = os.cpus().length;
+const numCpus = (() => {
+  const webConcurrency = parseInt(process.env['WEB_CONCURRENCY'], 10);
+  return webConcurrency > 0 ? webConcurrency : os.cpus().length;
+})();
 const npmCommands = {
   install: {
     cmd: [
