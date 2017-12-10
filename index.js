@@ -77,7 +77,6 @@ class ArchaeServer extends EventEmitter {
     cors,
     offline,
     offlinePlugins,
-    offlineFilesString,
     staticSite,
   } = {}) {
     super();
@@ -147,9 +146,6 @@ class ArchaeServer extends EventEmitter {
 
     offlinePlugins = offlinePlugins || [];
     this.offlinePlugins = offlinePlugins;
-
-    offlineFilesString = offlineFilesString || '';
-    this.offlineFilesString = offlineFilesString;
 
     staticSite = staticSite || false;
     this.staticSite = staticSite;
@@ -690,37 +686,168 @@ class ArchaeServer extends EventEmitter {
   mountApp() {
     const {hostname, dirname, publicDirectory, installDirectory, metadata, server, app, wss, cors, staticSite, pather, auther} = this;
 
-    class FakeResponse {
-      constructor(socket) {
-        this.socket = socket;
-      }
-      setHeader() {}
-      writeHead() {}
-      end() {
-        return this.socket.end();
-      }
+    // cross-origin resoure sharing
+    if (cors) {
+      app.all('*', (req, res, next) => {
+        res.set('Access-Control-Allow-Origin', req.get('Host'));
+        res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        res.set('Access-Control-Allow-Credentials', 'true');
+
+        next();
+      });
     }
 
-    class UpgradeEvent {
-      constructor(req, socket, head) {
-        this.req = req;
-        this.socket = socket;
-        this.head = head;
+    // password
+    app.all('*', auther);
 
-        this._live = true;
-      }
-
-      isLive() {
-        return this._live;
-      }
-
-      stopImmediatePropagation() {
-        this._live = false;
-      }
+    // user public
+    if (publicDirectory) {
+      app.use('/', express.static(path.join(dirname, publicDirectory)));
     }
 
-    server.on('upgrade', (req, socket, head) => {
-      if (!staticSite) {
+    // archae public
+    app.get('/archae/index.js', (req, res, next) => {
+      this.publicBundlePromise
+        .then(codeObject => {
+          res.type('application/javascript');
+          res.setHeader('ETag', codeObject.etag)
+          res.send(String(codeObject));
+        })
+        .catch(err => {
+          res.status(500);
+          res.send(err.stack);
+        });
+    });
+
+    // archae bundles
+    const _serveFile = (req, res, {module, serve}) => this.requestPluginServe(module, serve)
+      .then(d => {
+        if (d !== null) {
+          res.type(serve);
+
+          const et = etag(d);
+
+          if (req.get('If-None-Match') === et) {
+            res.status(304);
+            res.send();
+          } else {
+            res.set('Etag', et);
+            res.send(d);
+          }
+        } else {
+          res.status(404);
+          res.end(http.STATUS_CODES[404]);
+        }
+      })
+      .catch(err => {
+        res.status(500);
+        res.end(err.stack);
+      });
+    const _serveJsFile = (req, res, {module, build = null}) => this.requestPluginBuild(module, build)
+      .then(d => {
+        if (d !== null) {
+          res.type('application/javascript');
+
+          const et = etag(d); // XXX these can be precomputed
+
+          if (req.get('If-None-Match') === et) {
+            res.status(304);
+            res.send();
+          } else {
+            res.set('Etag', et);
+            res.send(d);
+          }
+        } else {
+          res.status(404);
+          res.end(http.STATUS_CODES[404]);
+        }
+      })
+      .catch(err => {
+        res.status(500);
+        res.end(err.stack);
+      });
+
+    app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+)\.js$/, (req, res, next) => {
+      const {params} = req;
+      const module = params[0];
+      const target = params[1];
+
+      if (module === target) {
+        _serveJsFile(req, res, {
+          module,
+        });
+      } else {
+        next();
+      }
+    });
+    app.get(/^\/archae\/plugins\/([^\/]+?)\/serve\/(.+)$/, (req, res, next) => {
+      const {params} = req;
+      const module = params[0];
+      const serve = params[1];
+
+      if (!/\.\./.test(serve)) {
+        _serveFile(req, res, {
+          module,
+          serve,
+        });
+      } else {
+        res.status(400);
+        res.send();
+      }
+    });
+    app.get(/^\/archae\/plugins\/([^\/]+?)\/build\/(.+)\.js$/, (req, res, next) => {
+      const {params} = req;
+      const module = params[0];
+      const build = params[1];
+
+      if (!/\.\./.test(build)) {
+        _serveJsFile(req, res, {
+          module,
+          build,
+        });
+      } else {
+        res.status(400);
+        res.send();
+      }
+    });
+
+    if (!staticSite) {
+      class FakeResponse {
+        constructor(socket) {
+          this.socket = socket;
+        }
+        setHeader() {}
+        writeHead() {}
+        end() {
+          return this.socket.end();
+        }
+      }
+
+      class UpgradeEvent {
+        constructor(req, socket, head) {
+          this.req = req;
+          this.socket = socket;
+          this.head = head;
+
+          this._live = true;
+        }
+
+        isLive() {
+          return this._live;
+        }
+
+        stopImmediatePropagation() {
+          this._live = false;
+        }
+      }
+
+      // archae lists
+      /* app.use('/archae/plugins.json', (req, res, next) => {
+        res.json(this.getLoadedPlugins());
+      }); */
+
+      server.on('upgrade', (req, socket, head) => {
         auther(req, new FakeResponse(socket), () => {
           const upgradeEvent = new UpgradeEvent(req, socket, head);
           wss.emit('upgrade', upgradeEvent);
@@ -731,141 +858,6 @@ class ArchaeServer extends EventEmitter {
             });
           }
         });
-      } else {
-        socket.destroy();
-      }
-    });
-
-    if (!staticSite) {
-      // cross-origin resoure sharing
-      if (cors) {
-        app.all('*', (req, res, next) => {
-          res.set('Access-Control-Allow-Origin', req.get('Host'));
-          res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-          res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-          res.set('Access-Control-Allow-Credentials', 'true');
-
-          next();
-        });
-      }
-
-      // password
-      app.all('*', auther);
-
-      // user public
-      if (publicDirectory) {
-        app.use('/', express.static(path.join(dirname, publicDirectory)));
-      }
-
-      // archae public
-      app.get('/archae/index.js', (req, res, next) => {
-        this.publicBundlePromise
-          .then(codeObject => {
-            res.type('application/javascript');
-            res.setHeader('ETag', codeObject.etag)
-            res.send(String(codeObject));
-          })
-          .catch(err => {
-            res.status(500);
-            res.send(err.stack);
-          });
-      });
-
-      // archae lists
-      app.use('/archae/plugins.json', (req, res, next) => {
-        res.json(this.getLoadedPlugins());
-      });
-
-      // archae bundles
-      const _serveFile = (req, res, {module, serve}) => this.requestPluginServe(module, serve)
-        .then(d => {
-          if (d !== null) {
-            res.type(serve);
-
-            const et = etag(d);
-
-            if (req.get('If-None-Match') === et) {
-              res.status(304);
-              res.send();
-            } else {
-              res.set('Etag', et);
-              res.send(d);
-            }
-          } else {
-            res.status(404);
-            res.end(http.STATUS_CODES[404]);
-          }
-        })
-        .catch(err => {
-          res.status(500);
-          res.end(err.stack);
-        });
-      const _serveJsFile = (req, res, {module, build = null}) => this.requestPluginBuild(module, build)
-        .then(d => {
-          if (d !== null) {
-            res.type('application/javascript');
-
-            const et = etag(d); // XXX these can be precomputed
-
-            if (req.get('If-None-Match') === et) {
-              res.status(304);
-              res.send();
-            } else {
-              res.set('Etag', et);
-              res.send(d);
-            }
-          } else {
-            res.status(404);
-            res.end(http.STATUS_CODES[404]);
-          }
-        })
-        .catch(err => {
-          res.status(500);
-          res.end(err.stack);
-        });
-
-      app.get(/^\/archae\/plugins\/([^\/]+?)\/([^\/]+)\.js$/, (req, res, next) => {
-        const {params} = req;
-        const module = params[0];
-        const target = params[1];
-
-        if (module === target) {
-          _serveJsFile(req, res, {
-            module,
-          });
-        } else {
-          next();
-        }
-      });
-      app.get(/^\/archae\/plugins\/([^\/]+?)\/serve\/(.+)$/, (req, res, next) => {
-        const {params} = req;
-        const module = params[0];
-        const serve = params[1];
-
-        if (!/\.\./.test(serve)) {
-          _serveFile(req, res, {
-            module,
-            serve,
-          });
-        } else {
-          res.status(400);
-          res.send();
-        }
-      });
-      app.get(/^\/archae\/plugins\/([^\/]+?)\/build\/(.+)\.js$/, (req, res, next) => {
-        const {params} = req;
-        const module = params[0];
-        const build = params[1];
-
-        if (!/\.\./.test(build)) {
-          _serveJsFile(req, res, {
-            module,
-            build,
-          });
-        } else {
-          res.status(400);
-          res.send();
-        }
       });
 
       wss.on('connection', (c, {url}) => {
@@ -1065,19 +1057,6 @@ class ArchaeServer extends EventEmitter {
       .catch(err => {
         console.warn(err);
       });
-
-    this.publicSwPromise = new Promise((accept, reject) => {
-      fs.readFile(path.join(__dirname, 'lib', 'sw.js'), 'utf8', (err, s) => {
-        if (!err) {
-          const codeString = 'const files = ' + this.offlineFilesString + ';\n' + s;
-          const codeObject = new String(codeString);
-          codeObject.etag = etag(codeString);
-          accept(codeObject);
-        } else {
-          reject(err);
-        }
-      });
-    });
 
     return Promise.resolve();
   }
