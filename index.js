@@ -701,6 +701,11 @@ class ArchaeServer extends EventEmitter {
       });
     }
 
+    // ping
+    app.get('/ping', (req, res, next) => {
+      res.end('pong');
+    });
+
     // password
     app.all('*', auther);
 
