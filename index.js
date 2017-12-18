@@ -1269,7 +1269,10 @@ class ArchaeInstaller {
     this.dataDirectory = dataDirectory;
     this.installDirectory = installDirectory;
     this.pather = pather;
+    this.hotload = hotload;
+
     this.fsHash = hotload ? fshash({
+      dirname,
       dataPath: path.join(dataDirectory, 'mod-hashes.json'),
     }) : _makeFakeFsHash({
       pather,
@@ -1280,38 +1283,8 @@ class ArchaeInstaller {
   }
 
   addModules(modules, force, cb) {
-    const {dirname, installDirectory, pather, fsHash} = this;
+    const {dirname, installDirectory, pather, hotload, fsHash} = this;
 
-    const _writeFile = (p, d) => new Promise((accept, reject) => {
-      mkdirp(path.dirname(p), err => {
-        if (!err) {
-          fs.writeFile(p, d, err => {
-            if (!err) {
-              accept();
-            } else {
-              reject(err);
-            }
-          });
-        } else {
-          reject(err);
-        }
-      });
-    });
-    const _copyFile = (s, d) => new Promise((accept, reject) => {
-      mkdirp(path.dirname(d), err => {
-        if (!err) {
-          fs.copyFile(s, d, err => {
-            if (!err) {
-              accept();
-            } else {
-              reject(err);
-            }
-          });
-        } else {
-          reject(err);
-        }
-      });
-    });
     const _requestTicket = () => new Promise((accept, reject) => {
       const _release = () => {
         const {numTickets} = this;
@@ -1429,30 +1402,78 @@ class ArchaeInstaller {
         });
     }));
 
-    Promise.all(modules.map(module => pather.requestModulePath(module)))
-      .then(modulePaths => {
-        const rawModulePaths = modulePaths.map(modulePath => {
-          const match = modulePath.match(/^file:(.+)$/);
-          if (match) {
-            return match[1];
-          } else {
-            return modulePath;
-          }
-        });
+    if (hotload) {
+      Promise.all(modules.map(module => pather.requestModulePath(module)))
+        .then(modulePaths => {
+          const rawModulePaths = modulePaths.map(modulePath => {
+            const match = modulePath.match(/^file:(.+)$/);
+            if (match) {
+              return match[1].replace(dirname, '');
+            } else {
+              return modulePath;
+            }
+          });
 
-        return fsHash.updateAll(rawModulePaths, bits => _requestNpmInstall(
-          modules.filter((module, index) => bits[index]),
-          modulePaths.filter((modulePath, index) => bits[index])
-        ), {
-          force,
+          return fsHash.updateAll(rawModulePaths, bits => _requestNpmInstall(
+            modules.filter((module, index) => bits[index]),
+            modulePaths.filter((modulePath, index) => bits[index])
+          ), {
+            force,
+          });
+        })
+        .then(() => {
+          cb();
+        })
+        .catch(err => {
+          cb(err);
         });
-      })
-      .then(() => {
-        cb();
-      })
-      .catch(err => {
-        cb(err);
-      });
+    } else {
+      const _requestInstalledModulePaths = ps => Promise.all(ps.map(_requestInstalledModulePath));
+      const _requestInstalledModulePath = p => (() => {
+        if (path.isAbsolute(p)) {
+          return Promise.resolve(p);
+        } else {
+          return pather.requestModulePath(p)
+            .then(p => {
+              const match = p.match(/^file:(.+)$/);
+
+              if (match) {
+                const packageJsonPath = path.join(match[1], 'package.json');
+
+                return _readFile(packageJsonPath, 'utf8')
+                  .then(s => JSON.parse(s).name);
+              } else {
+                return Promise.resolve(p);
+              }
+            });
+        }
+      })()
+      .then(p => pather.getAbsoluteModulePath(p));
+
+      Promise.all([
+        Promise.all(modules.map(module => pather.requestModulePath(module))),
+        _requestInstalledModulePaths(modules),
+      ])
+        .then(([
+          modulePaths,
+          installedModulePaths,
+        ]) => {
+          return Promise.all(installedModulePaths.map(p =>
+            _requestExists(p)
+              .then(exists => !exists)
+          ))
+            .then(bits => _requestNpmInstall(
+              modules.filter((module, index) => bits[index]),
+              modulePaths.filter((modulePath, index) => bits[index])
+            ));
+        })
+        .then(() => {
+          cb();
+        })
+        .catch(err => {
+          cb(err);
+        });
+    }
   }
 
   removeModule(module, cb) {
@@ -1480,19 +1501,49 @@ const _makeFakeFsHash = ({pather}) => ({
   updateAll: (ps, fn) => {
     ps = ps.slice().sort();
 
-    const promises = [];
-    for (let i = 0; i < ps.length; i++) {
-      const p = ps[i];
-      promises.push(
-        _requestExists(pather.getAbsoluteModulePath(p))
-          .then(exists => !exists ? p : null)
-      );
-    }
-    return Promise.all(promises)
-      .then(paths => Promise.resolve(fn(paths.filter(p => p !== null))))
+    return Promise.all(ps.map(p => fn(p)))
       .then(() => {});
   },
   remove: (p, fn) => Promise.resolve(fn(p)),
+});
+const _readFile = (p, opts) => new Promise((accept, reject) => {
+  fs.readFile(p, opts, (err, data) => {
+    if (!err) {
+      accept(data);
+    } else {
+      reject(err);
+    }
+  });
+});
+const _writeFile = (p, d) => new Promise((accept, reject) => {
+  mkdirp(path.dirname(p), err => {
+    if (!err) {
+      fs.writeFile(p, d, err => {
+        if (!err) {
+          accept();
+        } else {
+          reject(err);
+        }
+      });
+    } else {
+      reject(err);
+    }
+  });
+});
+const _copyFile = (s, d) => new Promise((accept, reject) => {
+  mkdirp(path.dirname(d), err => {
+    if (!err) {
+      fs.copyFile(s, d, err => {
+        if (!err) {
+          accept();
+        } else {
+          reject(err);
+        }
+      });
+    } else {
+      reject(err);
+    }
+  });
 });
 const _requestExists = p => new Promise((accept, reject) => {
   fs.lstat(p, err => {
