@@ -15,6 +15,7 @@ const httpAuth = require('http-auth');
 const mkdirp = require('mkdirp');
 const rimraf = require('rimraf');
 const getport = require('getport');
+const AutoWsServer = require('autows');
 const rollup = require('rollup');
 const rollupPluginNodeResolve = require('rollup-plugin-node-resolve');
 const rollupPluginCommonJs = require('rollup-plugin-commonjs');
@@ -270,7 +271,7 @@ class ArchaeServer extends EventEmitter {
       noServer: true,
     });
     wss.setMaxListeners(100);
-    return wss;
+    return new AutoWsServer(wss);
   }
 
   requestPlugin(plugin, {force = false, hotload = false, offline = false} = {}) {
@@ -861,9 +862,7 @@ class ArchaeServer extends EventEmitter {
           wss.emit('upgrade', upgradeEvent);
 
           if (upgradeEvent.isLive()) {
-            wss.handleUpgrade(req, socket, head, c => {
-              wss.emit('connection', c, req);
-            });
+            wss.handleUpgrade(req, socket, head);
           }
         });
       });
