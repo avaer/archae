@@ -997,7 +997,7 @@ class ArchaeServer extends EventEmitter {
             }
           });
           c.on('close', () => {
-            console.log('connection close');
+            console.log('connection close', new Error().stack);
 
             this.connections.splice(this.connections.indexOf(c), 1);
           });
