@@ -1591,7 +1591,15 @@ const _requestRollup = p => {
       }))
       .then(({code}) => code)
   ))
-    .then(codes => '(function() {\n' + codes.join('\n') + '\n})();\n');
+    .then(codes => {
+      if (codes.length > 0) {
+        return '(function() {\n' +
+          codes.join('\n') +
+        '\n})();\n';
+      } else {
+        return codes[0];
+      }
+    });
 };
 
 const archae = opts => new ArchaeServer(opts);
