@@ -22,7 +22,7 @@
     "multimutex": "0.0.2",
     "rimraf": "^2.6.2",
     "rollup": "^0.51.3",
-    "rollup-plugin-commonjs-async": "0.0.2",
+    "rollup-plugin-commonjs-async": "0.0.3",
     "rollup-plugin-json": "^2.3.0",
     "rollup-plugin-node-resolve": "^3.0.0",
     "spdy": "^3.4.7",
