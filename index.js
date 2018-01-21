@@ -1594,7 +1594,7 @@ const _requestRollup = p => {
     .then(codes =>
       '(async function() {\n' +
         codes.join('\n') +
-      '\n})().catch(err => { throw err; });\n'
+      '\n})().catch(err => console.warn(err));\n'
     )
 };
 
