@@ -18,7 +18,7 @@ const getport = require('getport');
 const AutoWsServer = require('autows');
 const rollup = require('rollup');
 const rollupPluginNodeResolve = require('rollup-plugin-node-resolve');
-const rollupPluginCommonJs = require('rollup-plugin-commonjs');
+const rollupPluginCommonJsAsync = require('rollup-plugin-commonjs-async');
 const rollupPluginJson = require('rollup-plugin-json');
 const watchr = require('watchr');
 const cryptoutils = require('cryptoutils');
@@ -1580,7 +1580,7 @@ const _requestRollup = p => {
           main: true,
           preferBuiltins: false,
         }),
-        rollupPluginCommonJs(),
+        rollupPluginCommonJsAsync(),
         rollupPluginJson(),
       ],
     })
